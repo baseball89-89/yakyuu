@@ -1,0 +1,2468 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>打球記録</title>
+<style>
+  /* ===== 色は機能ごとに整理 ===== */
+  :root {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --text: #0f172a;
+    --muted: #475569;
+    --line: #94a3b8;
+    --bar: #0f172a;
+    --player: #0f766e;   /* 選手：ティール */
+    --type: #1d4ed8;     /* 打球種類：青 */
+    --strA: #15803d;     /* 強さA：緑 */
+    --strB: #b45309;     /* 強さB：琥珀 */
+    --strC: #475569;     /* 強さC：灰 */
+    --strD: #be123c;     /* 強さD（空振り）：ローズ */
+    --dir: #7e22ce;      /* 方向：紫 */
+    --impact: #dc2626;   /* インパクト記録：赤（最も目立たせる） */
+    --pending: #ea580c;  /* 未入力：橙 */
+    --danger: #b91c1c;
+    --missing: #ef4444;
+    --ok: #16a34a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+    font-size: 16px;
+    line-height: 1.35;
+  }
+  button { font-family: inherit; touch-action: manipulation; cursor: pointer; }
+
+  /* ===== 上部バー ===== */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top));
+    background: var(--bar); color: #fff;
+  }
+  .topbar .title { font-weight: 800; font-size: 17px; white-space: nowrap; }
+  .topbar .count {
+    font-size: 13px; background: #334155; padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+    flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  }
+  .topbar .count.err { background: var(--danger); }
+  .topbar .spacer { flex: 1; }
+  .topbar button {
+    height: 38px; padding: 0 10px; border-radius: 10px; border: 2px solid #fff; flex: 0 0 auto;
+    background: transparent; color: #fff; font-weight: 700; font-size: 15px; white-space: nowrap;
+  }
+  .topbar button.primary { background: #fff; color: var(--bar); }
+
+  /* 下部に固定したインパクトボタンの分だけ余白を取る */
+  .wrap { max-width: 560px; margin: 0 auto; padding: 8px 12px calc(120px + env(safe-area-inset-bottom)); }
+
+  /* ===== 通知 ===== */
+  .banner {
+    display: none; margin: 0 0 8px; padding: 10px 12px; border-radius: 10px;
+    font-size: 14px; font-weight: 600; align-items: flex-start; gap: 8px;
+  }
+  .banner.show { display: flex; }
+  .banner.info { background: #e0f2fe; color: #075985; border: 2px solid #0284c7; }
+  .banner.error { background: #fee2e2; color: #7f1d1d; border: 2px solid var(--danger); }
+  .banner .msg { flex: 1; }
+  .banner button {
+    border: none; background: transparent; font-size: 14px; font-weight: 800; color: inherit; padding: 2px 4px;
+  }
+
+  /* ===== 編集中の記録 ===== */
+  .edit-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 12px; background: var(--surface); border: 2px solid var(--line);
+    font-size: 15px; font-weight: 700; min-height: 48px;
+  }
+  .edit-head.active { border-color: var(--text); }
+  .edit-head .no { font-size: 18px; font-weight: 900; }
+  .edit-head .time { font-variant-numeric: tabular-nums; }
+  .edit-head .who { color: var(--player); }
+  .edit-head .grow { flex: 1; min-width: 0; }
+  .edit-head .idle { color: var(--muted); font-weight: 600; font-size: 14px; }
+  .badge { font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 999px; color: #fff; white-space: nowrap; }
+  .badge.pend { background: var(--pending); }
+  .badge.done { background: var(--ok); }
+
+  .pending-row { display: flex; gap: 6px; overflow-x: auto; margin-top: 6px; scrollbar-width: none; }
+  .pending-row::-webkit-scrollbar { display: none; }
+  .pchip {
+    flex: 0 0 auto; height: 34px; padding: 0 10px; border-radius: 17px;
+    border: 2px solid var(--pending); background: #fff7ed; color: #9a3412; font-size: 13px; font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .pchip.cur { background: var(--pending); color: #fff; }
+
+  /* ===== 選手 ===== */
+  .players-head { display: flex; align-items: center; gap: 8px; margin: 8px 2px 4px; }
+  .players-head .lbl { font-size: 13px; font-weight: 700; color: var(--muted); flex: 0 0 auto; }
+  .players-head .today {
+    font-size: 13px; color: var(--muted); flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .players {
+    display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px;
+    scrollbar-width: none; border-radius: 12px; border: 3px solid transparent;
+  }
+  .players::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; min-width: 84px; height: 46px; padding: 0 14px;
+    border: 2px solid var(--line); border-radius: 23px; background: var(--surface);
+    color: var(--text); font-size: 17px; font-weight: 700;
+  }
+  .chip.sel { background: var(--player); border-color: var(--player); color: #fff; box-shadow: 0 0 0 3px #99f6e4; }
+  /* ［選手を変更］ */
+  .reassign-btn { flex: 0 0 auto; height: 32px; padding: 0 10px; border-radius: 9px; border: 2px solid #b45309; background: #fff7ed; color: #9a3412; font-size: 13px; font-weight: 800; }
+  .reassign-btn.on { background: #b45309; color: #fff; }
+  .players.reassign { border: 3px dashed #b45309; background: #fff7ed; }
+  .players.reassign .chip.sel { background: #b45309; border-color: #b45309; box-shadow: 0 0 0 3px #fed7aa; }
+  .edit-head { flex-wrap: wrap; }
+  /* 長い名前でも崩れないよう省略表示 */
+  .chip { max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 次のインパクトに使う選手（入力中の記録と別の選手のとき） */
+  .chip.next:not(.sel) { border-color: var(--player); border-width: 3px; }
+  .chip.next:not(.sel)::after { content: " ▶次"; font-size: 12px; color: var(--player); }
+  /* 選手追加ボタン：点線枠で通常の選手チップと区別 */
+  .chip.add-player {
+    min-width: 108px; max-width: none; border: 2px dashed var(--player); background: #f0fdfa; color: var(--player);
+  }
+  /* 選手の名前変更・削除（小さく、入力の邪魔にならない位置） */
+  .ptools { display: flex; gap: 6px; flex: 0 0 auto; }
+  .ptools button {
+    height: 32px; padding: 0 10px; border-radius: 9px; border: 1.5px solid var(--line);
+    background: var(--surface); color: var(--text); font-size: 13px; font-weight: 700;
+  }
+  .ptools button.danger { border-color: #fca5a5; color: var(--danger); }
+  .ptools button:disabled { opacity: .4; }
+  /* 選手名の入力欄（追加・変更で共用） */
+  .player-editor {
+    margin: 4px 0 2px; padding: 10px; border-radius: 12px;
+    background: #f0fdfa; border: 2px solid var(--player);
+  }
+  .player-editor[hidden] { display: none; }
+  .player-editor .pe-title { font-size: 13px; font-weight: 800; color: var(--player); margin-bottom: 6px; }
+  .player-editor .pe-row { display: flex; gap: 6px; }
+  .player-editor input {
+    flex: 1; min-width: 0; height: 46px; border: 2px solid var(--line); border-radius: 10px;
+    padding: 0 10px; font-size: 16px; background: #fff; color: var(--text);
+  }
+  .player-editor input:focus { outline: none; border-color: var(--player); }
+  .player-editor .pe-ok {
+    flex: 0 0 auto; height: 46px; padding: 0 16px; border-radius: 10px; border: none;
+    background: var(--player); color: #fff; font-size: 16px; font-weight: 900;
+  }
+  .player-editor .pe-cancel {
+    flex: 0 0 auto; height: 46px; padding: 0 10px; border-radius: 10px; border: 2px solid var(--line);
+    background: #fff; color: var(--muted); font-size: 14px; font-weight: 800;
+  }
+  .player-editor .pe-err { min-height: 18px; margin-top: 4px; font-size: 13px; font-weight: 800; color: var(--danger); }
+  .chip.just-added { animation: flash 1.2s; }
+  @keyframes flash { 0%,60% { box-shadow: 0 0 0 4px #5eead4; } 100% { box-shadow: none; } }
+
+  /* ===== 選択行 ===== */
+  .row {
+    display: flex; align-items: stretch; gap: 6px; margin-top: 6px;
+    padding: 4px; border-radius: 14px; border: 3px solid transparent;
+  }
+  .row .rlabel {
+    flex: 0 0 38px; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800; color: var(--muted); text-align: center;
+  }
+  .opt {
+    flex: 1; height: 56px; border-radius: 12px; border: 2px solid var(--line);
+    background: var(--surface); color: var(--text);
+    font-size: 18px; font-weight: 800; line-height: 1.1; padding: 0 2px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .opt small { font-size: 12px; font-weight: 700; color: var(--muted); }
+  .opt.sel small { color: rgba(255,255,255,.9); }
+  .opt.sel::before { content: "✓ "; }
+  .opt.sel { color: #fff; transform: scale(1.02); }
+  .row[data-group="type"] .opt.sel { background: var(--type); border-color: var(--type); box-shadow: 0 0 0 3px #bfdbfe; }
+  .row[data-group="dir"]  .opt.sel { background: var(--dir);  border-color: var(--dir);  box-shadow: 0 0 0 3px #e9d5ff; }
+  .row[data-group="str"] .opt[data-v="D"].sel { background: var(--strD); border-color: var(--strD); box-shadow: 0 0 0 3px #fecaca; }
+  .tag.sD { background: var(--strD); }
+  /* D（空振り）選択時：種類・方向は入力対象外 */
+  .row.na .opt { opacity: .3; border-style: dashed; }
+  .whiff-note { margin: 2px 0 0 40px; font-size: 12px; font-weight: 700; color: var(--strD); }
+  .whiff-note[hidden] { display: none; }
+  .row[data-group="str"] { gap: 4px; }
+  .row[data-group="str"] .opt { min-width: 0; padding: 0 1px; }
+  .row[data-group="str"] .opt small { font-size: 11px; white-space: nowrap; letter-spacing: -0.05em; }
+  .row .rlabel { white-space: nowrap; font-size: 12px; }
+  .rp-table.kpi th { white-space: nowrap; }
+  /* 方向は4択なので、文字と間隔を少し詰めて1行に収める */
+  .row[data-group="dir"] { gap: 4px; }
+  .row[data-group="dir"] .opt { min-width: 0; font-size: 15px; letter-spacing: -0.03em; padding: 0 1px; white-space: nowrap; }
+  .row[data-group="dir"] .opt small { font-size: 11px; }
+  .row[data-group="str"] .opt[data-v="A"].sel { background: var(--strA); border-color: var(--strA); box-shadow: 0 0 0 3px #bbf7d0; }
+  .row[data-group="str"] .opt[data-v="B"].sel { background: var(--strB); border-color: var(--strB); box-shadow: 0 0 0 3px #fde68a; }
+  .row[data-group="str"] .opt[data-v="C"].sel { background: var(--strC); border-color: var(--strC); box-shadow: 0 0 0 3px #cbd5e1; }
+
+  /* 編集対象がないときは結果入力を薄く表示 */
+  .result-area.disabled .opt, .result-area.disabled .memo-area, .result-area.disabled .confirm { opacity: .45; }
+
+  .missing { border-color: var(--missing) !important; background: #fef2f2; animation: shake .3s; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-5px)} 75%{transform:translateX(5px)} }
+
+  /* ===== メモ ===== */
+  .memo-area { margin-top: 6px; }
+  .memo-area input {
+    width: 100%; height: 44px; border: 2px solid var(--line); border-radius: 12px;
+    padding: 0 12px; font-size: 16px; background: var(--surface); color: var(--text);
+  }
+  .memo-area input:focus { outline: none; border-color: var(--type); }
+  .presets { display: flex; gap: 6px; overflow-x: auto; margin-top: 6px; scrollbar-width: none; }
+  .presets::-webkit-scrollbar { display: none; }
+  .preset {
+    flex: 0 0 auto; height: 32px; padding: 0 10px; border-radius: 16px;
+    border: 1.5px solid var(--line); background: #e2e8f0; color: var(--text); font-size: 13px; font-weight: 600;
+  }
+
+  /* ===== 操作ボタン ===== */
+  .actions { display: flex; gap: 8px; margin-top: 8px; }
+  .undo {
+    flex: 0 0 34%; height: 54px; border-radius: 14px; border: 2px solid var(--muted);
+    background: var(--surface); color: var(--text); font-size: 14px; font-weight: 800; line-height: 1.2;
+  }
+  .confirm {
+    flex: 1; height: 54px; border-radius: 14px; border: 2px solid var(--text);
+    background: var(--text); color: #fff; font-size: 18px; font-weight: 900;
+  }
+  .errmsg { min-height: 20px; margin-top: 6px; color: var(--danger); font-weight: 800; font-size: 14px; text-align: center; }
+
+  /* ===== インパクト記録（下部固定） ===== */
+  .impact-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    background: rgba(241,245,249,.96); border-top: 2px solid #cbd5e1;
+  }
+  .impact {
+    display: block; width: 100%; max-width: 560px; margin: 0 auto; height: 84px; border-radius: 18px; border: none;
+    background: var(--impact); color: #fff; font-size: 26px; font-weight: 900; letter-spacing: .06em;
+    box-shadow: 0 5px 0 #991b1b; user-select: none; -webkit-user-select: none;
+  }
+  .impact:active { transform: translateY(3px); box-shadow: 0 2px 0 #991b1b; }
+  .impact.done { background: var(--ok); box-shadow: 0 5px 0 #166534; font-size: 20px; }
+  .impact.off { background: #94a3b8; box-shadow: 0 5px 0 #64748b; font-size: 18px; }
+  .impact .sub { display: block; font-size: 13px; font-weight: 700; letter-spacing: 0; opacity: .9; }
+
+  /* ===== 一覧 ===== */
+  .list-head { display: flex; align-items: center; justify-content: space-between; margin: 18px 2px 6px; }
+  .list-head h2 { font-size: 16px; margin: 0; }
+  .list-head .filter {
+    height: 34px; border-radius: 10px; border: 2px solid var(--line); background: var(--surface);
+    font-size: 13px; font-weight: 700; padding: 0 10px; color: var(--text);
+  }
+  .list-head .filter.on { background: var(--player); color: #fff; border-color: var(--player); }
+  .card {
+    background: var(--surface); border: 1.5px solid #cbd5e1; border-radius: 12px;
+    padding: 10px 10px 10px 12px; margin-bottom: 8px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .card.cur { border: 3px solid var(--text); }
+  .card.pend { border-left: 6px solid var(--pending); }
+  .card .main { flex: 1; min-width: 0; cursor: pointer; }
+  .card .meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .card .meta b { color: var(--text); }
+  .card .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .tag { font-size: 14px; font-weight: 800; padding: 2px 8px; border-radius: 8px; color: #fff; }
+  .tag.player { background: var(--player); }
+  .tag.type { background: var(--type); }
+  .tag.dir { background: var(--dir); }
+  .tag.sA { background: var(--strA); } .tag.sB { background: var(--strB); } .tag.sC { background: var(--strC); }
+  .tag.none { background: #e2e8f0; color: var(--muted); }
+  .card .memo { margin-top: 4px; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+  .card .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .del {
+    flex: 0 0 auto; height: 40px; min-width: 56px; padding: 0 8px; border-radius: 10px;
+    border: 2px solid #cbd5e1; background: #f8fafc; color: var(--muted); font-size: 13px; font-weight: 800;
+  }
+  .del.confirm-del { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .empty { text-align: center; color: var(--muted); padding: 20px 0; font-size: 14px; }
+
+  .danger-zone { margin-top: 28px; padding-top: 14px; border-top: 2px dashed #cbd5e1; text-align: center; }
+  .danger-zone button {
+    height: 40px; padding: 0 16px; border-radius: 10px; border: 2px solid var(--danger);
+    background: transparent; color: var(--danger); font-weight: 800; font-size: 14px;
+  }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; text-align: left; }
+
+  /* ===== トースト ===== */
+  .toast {
+    position: fixed; left: 50%; top: 64px; transform: translateX(-50%) translateY(-20px);
+    background: #0f172a; color: #fff; padding: 10px 16px; border-radius: 12px;
+    font-size: 15px; font-weight: 700; opacity: 0; pointer-events: none; transition: all .2s; z-index: 50;
+    max-width: 92vw; text-align: center;
+  }
+  .toast.show { opacity: .95; transform: translateX(-50%) translateY(0); }
+
+  /* ===== 時刻合わせ用の大時計 ===== */
+  .clock {
+    position: fixed; inset: 0; z-index: 100; background: #000; color: #fff;
+    display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  }
+  .clock.show { display: flex; }
+  .clock .d { font-size: 6vw; color: #cbd5e1; font-variant-numeric: tabular-nums; }
+  .clock .t { font-size: 17vw; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .clock .cs { font-size: 9vw; color: #facc15; font-variant-numeric: tabular-nums; }
+  .clock .hint { font-size: 14px; color: #94a3b8; margin-top: 16px; padding: 0 16px; }
+
+  /* ===== 画面切り替えタブ ===== */
+  .viewtabs { display: flex; flex: 0 0 auto; border: 2px solid #fff; border-radius: 10px; overflow: hidden; }
+  .viewtabs button {
+    height: 34px; padding: 0 12px; border: none; border-radius: 0; background: transparent;
+    color: #fff; font-size: 15px; font-weight: 800; white-space: nowrap;
+  }
+  .viewtabs button.on { background: #fff; color: var(--bar); }
+  body[data-view="report"] #recordView,
+  body[data-view="report"] .impact-bar,
+  body[data-view="report"] #clockBtn { display: none !important; }
+  body:not([data-view="report"]) #reportView { display: none; }
+
+  /* ===== データ管理 ===== */
+  .manage {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 20px;
+    padding: 10px 12px; border-radius: 12px; background: #fff; border: 1.5px dashed #fca5a5;
+  }
+  .manage .mg-label { font-size: 13px; font-weight: 800; color: var(--muted); }
+  .manage .mg-info { flex: 1; min-width: 8em; font-size: 13px; color: var(--muted); }
+  .manage button { height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13px; font-weight: 800; }
+  .manage .mg-csv { border: 2px solid var(--text); background: #fff; color: var(--text); }
+  .manage .mg-danger { border: 2px solid var(--danger); background: #fff1f2; color: var(--danger); }
+
+  /* ===== 確認画面 ===== */
+  .modal { position: fixed; inset: 0; z-index: 120; background: rgba(15,23,42,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .modal[hidden] { display: none; }
+  .modal-box { width: 100%; max-width: 420px; background: #fff; border-radius: 16px; padding: 18px; border-top: 6px solid var(--danger); }
+  .modal-box h3 { margin: 0 0 8px; font-size: 18px; color: var(--danger); }
+  .cl-count { font-size: 15px; font-weight: 800; margin: 0 0 8px; }
+  .cl-keep { margin: 0 0 8px; padding-left: 18px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .cl-warn { font-size: 13px; font-weight: 700; color: var(--danger); margin: 0 0 10px; }
+  .cl-csv { width: 100%; height: 44px; border-radius: 10px; border: 2px solid var(--text); background: #fff; font-size: 15px; font-weight: 800; }
+  .cl-check { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0; font-size: 14px; font-weight: 700; }
+  .cl-check input { width: 20px; height: 20px; flex: 0 0 auto; }
+  .cl-actions { display: flex; gap: 8px; }
+  .cl-actions button { flex: 1; height: 48px; border-radius: 12px; font-size: 15px; font-weight: 900; }
+  .cl-cancel { border: 2px solid var(--muted); background: #fff; color: var(--text); }
+  .cl-do { border: none; background: var(--danger); color: #fff; }
+  .cl-do:disabled { opacity: .35; }
+
+  /* ===== CSVの取り込み ===== */
+  .rp-import { background: #fff; border-radius: 14px; border: 1.5px dashed var(--player); padding: 10px 12px; margin: 4px 0 10px; }
+  .rp-import.on { border-style: solid; background: #f0fdfa; }
+  .im-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .im-btn { display: inline-flex; align-items: center; height: 42px; padding: 0 14px; border-radius: 10px; background: var(--player); color: #fff; font-size: 15px; font-weight: 800; cursor: pointer; }
+  .im-clear { height: 42px; padding: 0 12px; border-radius: 10px; border: 2px solid var(--muted); background: #fff; font-size: 14px; font-weight: 800; }
+  .im-clear[hidden] { display: none; }
+  .im-status { margin: 8px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .rp-import.on .im-status { color: var(--text); font-weight: 700; }
+  .im-msgs { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: #9a3412; line-height: 1.6; }
+  .im-msgs:empty { display: none; }
+  .rp-src { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* ===== CSVの保存方法 ===== */
+  #csvSheet { z-index: 130; }
+  .csv-box { border-top-color: var(--text); }
+  .csv-box h3 { color: var(--text); }
+  .cs-info { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+  .cs-btn {
+    display: block; width: 100%; margin-bottom: 8px; padding: 10px 12px; border-radius: 12px; text-align: left;
+    border: 2px solid var(--line); background: #fff; color: var(--text); font-size: 16px; font-weight: 900;
+  }
+  .cs-btn small { display: block; margin-top: 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .cs-btn.cs-main { border-color: var(--text); background: var(--text); color: #fff; }
+  .cs-btn.cs-main small { color: #cbd5e1; }
+  .cs-btn[hidden] { display: none; }
+  .cs-text { width: 100%; height: 120px; margin-bottom: 8px; font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; border: 2px solid var(--line); border-radius: 10px; padding: 6px; }
+  .cs-text[hidden] { display: none; }
+  .cs-close { width: 100%; height: 46px; border-radius: 12px; font-size: 15px; font-weight: 900; }
+
+  /* ===== 分析レポート ===== */
+  .wrap.report { max-width: 1040px; padding-bottom: 32px;
+    --q-A: #104281; --q-B: #2a78d6; --q-C: #86b6ef; --q-D: #be123c;   /* 強さ：A〜Cは濃→淡の青、Dは独立色 */
+    --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5; --seq-5: #256abf; --seq-6: #184f95;
+    --bar-1: #2a78d6; --grid: #e2e8f0; --axis: #94a3b8; --ink-2: #475569; --ink-3: #64748b; }
+  .rp-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; padding: 10px 0 6px; }
+  .rp-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 800; color: var(--muted); }
+  .rp-field select, .rp-field input {
+    height: 42px; border: 2px solid var(--line); border-radius: 10px; padding: 0 8px;
+    font-size: 16px; background: #fff; color: var(--text); font-family: inherit; max-width: 100%;
+  }
+  .rp-field select { min-width: 9em; }
+  .rp-date { display: flex; gap: 4px; }
+  .rp-date button { width: 42px; height: 42px; border-radius: 10px; border: 2px solid var(--line); background: #fff; font-size: 15px; }
+  .rp-date button:disabled { opacity: .35; }
+  .rp-print { height: 42px; padding: 0 14px; border-radius: 10px; border: 2px solid var(--text); background: var(--text); color: #fff; font-size: 14px; font-weight: 800; margin-left: auto; }
+  .rp-head { background: #fff; border-radius: 14px; border: 1.5px solid #cbd5e1; padding: 12px 14px; margin: 6px 0 10px; }
+  .rp-head h2 { margin: 0 0 6px; font-size: 20px; }
+  .rp-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; color: var(--muted); }
+  .rp-stats b { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
+  .rp-summary { margin: 8px 0 0; font-size: 13px; line-height: 1.6; color: var(--text); background: #f8fafc; border-radius: 8px; padding: 8px 10px; }
+  .rp-summary .tagline { font-size: 11px; font-weight: 800; color: var(--muted); display: block; }
+  .rp-warn { color: #9a3412; font-weight: 700; }
+  .rp-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  @media (min-width: 900px) { .rp-grid { grid-template-columns: 1fr 1fr; } .rp-wide { grid-column: 1 / -1; } }
+  .rp-card { background: #fff; border-radius: 14px; border: 1.5px solid #cbd5e1; padding: 12px 14px; min-width: 0; break-inside: avoid; page-break-inside: avoid; }
+  .rp-card h3 { margin: 0 0 8px; font-size: 15px; }
+  .rp-scope { font-size: 11px; font-weight: 700; color: var(--muted); background: #f1f5f9; border-radius: 6px; padding: 1px 6px; vertical-align: middle; }
+  .rp-empty { padding: 18px 8px; text-align: center; color: var(--muted); font-size: 14px; background: #f8fafc; border-radius: 10px; }
+  .rp-note { font-size: 12px; color: var(--muted); margin: 6px 0 0; line-height: 1.5; }
+  .viz { width: 100%; height: auto; display: block; overflow: visible; }
+  .viz text { font-family: inherit; }
+  .q-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+  .q-wrap .viz { width: 190px; max-width: 46%; min-width: 150px; }
+  .legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 180px; }
+  .legend li { display: grid; grid-template-columns: 14px 1fr auto auto; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+  .legend .sw { width: 14px; height: 14px; border-radius: 4px; }
+  .legend .nm { color: var(--text); font-weight: 700; }
+  .legend .ct, .legend .pc { font-variant-numeric: tabular-nums; color: var(--ink-2); text-align: right; }
+  .legend .pc { min-width: 4.2em; font-weight: 800; color: var(--text); }
+  .legend li.zero .nm, .legend li.zero .pc { color: var(--ink-3); font-weight: 600; }
+  .rp-toggles { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+  .rp-toggles button {
+    height: 32px; padding: 0 10px; border-radius: 16px; border: 2px solid var(--line); background: #fff;
+    font-size: 13px; font-weight: 800; color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px;
+  }
+  .rp-toggles button .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .rp-toggles button[aria-pressed="true"] { border-color: var(--text); color: var(--text); background: #f8fafc; }
+  .rp-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .rp-table th, .rp-table td { border-bottom: 1px solid #e2e8f0; padding: 4px 6px; text-align: right; }
+  .rp-table th:first-child, .rp-table td:first-child { text-align: left; }
+  .rp-table tr.cur td { font-weight: 800; background: #f1f5f9; }
+  .rp-table.kpi { margin-top: 10px; font-size: 13px; }
+  .rp-table.kpi td small { color: var(--muted); font-size: 11px; }
+  details.rp-tbl summary, details.rp-def summary { cursor: pointer; font-size: 12px; font-weight: 800; color: var(--muted); margin-top: 6px; }
+  details.rp-def { margin-top: 12px; background: #fff; border-radius: 12px; border: 1.5px solid #e2e8f0; padding: 8px 12px; }
+  details.rp-def ul { margin: 6px 0 2px; padding-left: 18px; font-size: 12px; line-height: 1.7; color: var(--ink-2); }
+  .hbars { display: grid; gap: 8px; }
+  .hbar { display: grid; grid-template-columns: 5.2em 1fr 7.5em; gap: 8px; align-items: center; font-size: 14px; }
+  .hbar .nm { font-weight: 700; }
+  .hbar .track { height: 18px; background: #f1f5f9; border-radius: 4px; position: relative; overflow: hidden; display: flex; }
+  .hbar .fill { height: 100%; border-radius: 0 4px 4px 0; background: var(--bar-1); min-width: 0; }
+  .hbar .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .hbar .val b { color: var(--text); }
+  .hbar.small .nm::after { content: " ※少数"; font-size: 11px; color: #9a3412; font-weight: 700; }
+  .stack { display: flex; gap: 2px; height: 22px; }
+  .stack .seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .stack .seg:first-child { border-radius: 4px 0 0 4px; }
+  .stack .seg:last-child { border-radius: 0 4px 4px 0; }
+  .stack .seg.light { color: #0f172a; }
+  .rp-comment { margin-top: 10px; }
+  .cm-status { font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 6px; }
+  .cm-status.ok { color: #15803d; } .cm-status.err { color: var(--danger); } .cm-status.dirty { color: #b45309; }
+  .cm-for { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+  .cm-label { display: block; margin: 10px 0 4px; font-size: 14px; font-weight: 800; }
+  .cm-label small { font-weight: 600; color: var(--muted); font-size: 12px; }
+  .rp-comment textarea {
+    width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 8px 10px; resize: vertical;
+    font-size: 16px; font-family: inherit; line-height: 1.5; color: var(--text); background: #fff;
+  }
+  .rp-comment textarea:focus { outline: none; border-color: var(--type); }
+  .cm-note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+  .print-text { display: none; }
+  .viz-tip { position: fixed; z-index: 90; pointer-events: none; background: #0f172a; color: #fff; font-size: 12px; font-weight: 700; padding: 6px 8px; border-radius: 8px; white-space: pre; display: none; }
+
+  /* ===== 印刷・PDF ===== */
+  @media print {
+    @page { margin: 12mm; }
+    body { background: #fff; }
+    .topbar, .impact-bar, #recordView, .no-print, .toast, .modal, .banner, .viz-tip, details summary { display: none !important; }
+    body #reportView { display: block !important; max-width: none; padding: 0; }
+    details.rp-def { display: block; border: none; padding: 0; }
+    details.rp-def > ul { display: block; }
+    .rp-grid { grid-template-columns: 1fr 1fr; }
+    .rp-wide { grid-column: 1 / -1; }
+    .rp-card, .rp-head { border-color: #cbd5e1; break-inside: avoid; page-break-inside: avoid; }
+    .rp-comment textarea { display: none; }
+    .print-text { display: block; white-space: pre-wrap; font-size: 13px; line-height: 1.6; min-height: 1.6em; border-bottom: 1px solid #e2e8f0; padding: 2px 0 6px; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <nav class="viewtabs" role="tablist" aria-label="画面の切り替え">
+    <button type="button" role="tab" id="tabRecord" class="on" aria-selected="true">記録</button>
+    <button type="button" role="tab" id="tabReport" aria-selected="false">分析</button>
+  </nav>
+  <span class="count" id="countBadge">保存 0件</span>
+  <span class="spacer"></span>
+  <button type="button" id="clockBtn" aria-label="時刻合わせ用の時計">時計</button>
+  <button type="button" id="csvBtn" class="primary">CSV</button>
+</header>
+
+<main class="wrap" id="recordView">
+  <div class="banner info" id="restoreBanner"><span class="msg" id="restoreMsg"></span><button type="button" id="restoreClose">閉じる</button></div>
+  <div class="banner error" id="saveError"><span class="msg" id="saveErrorMsg"></span></div>
+
+  <!-- 編集中の記録（どの記録に入力しているか） -->
+  <div class="edit-head" id="editHead"></div>
+  <div class="pending-row" id="pendingRow"></div>
+
+  <!-- ステップ2：打球結果の入力（編集中の記録に即保存） -->
+  <div class="result-area" id="resultArea">
+    <div class="players-head">
+      <span class="lbl">選手</span>
+      <span class="today" id="todayCount"></span>
+      <span class="ptools">
+        <button type="button" id="renamePlayerBtn">✎ 名前変更</button>
+        <button type="button" id="deletePlayerBtn" class="danger">削除</button>
+      </span>
+    </div>
+    <div class="players" id="players" role="group" aria-label="選手"></div>
+    <div class="player-editor" id="playerEditor" hidden>
+      <div class="pe-title" id="peTitle"></div>
+      <div class="pe-row">
+        <input type="text" id="peInput" enterkeyhint="done" autocomplete="off" placeholder="選手名">
+        <button type="button" class="pe-ok" id="peOk">追加</button>
+        <button type="button" class="pe-cancel" id="peCancel">キャンセル</button>
+      </div>
+      <div class="pe-err" id="peErr" role="alert"></div>
+    </div>
+
+    <div class="row" data-group="type" id="rowType" role="group" aria-label="打球種類"><span class="rlabel">種類</span></div>
+    <div class="row" data-group="str"  id="rowStr"  role="group" aria-label="当たり"><span class="rlabel">当たり</span></div>
+    <div class="row" data-group="dir"  id="rowDir"  role="group" aria-label="打球方向"><span class="rlabel">方向</span></div>
+    <div class="whiff-note" id="whiffNote" hidden>空振り（D）：打球種類・方向は入力しません（当たりをA〜Cにすると入力できます）</div>
+
+    <div class="memo-area">
+      <input type="text" id="memo" placeholder="メモ（任意）例：芯で捉えた" enterkeyhint="done" autocomplete="off">
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="undo" id="undoBtn">直前の操作を<br>取り消す</button>
+      <button type="button" class="confirm" id="confirmBtn">確定して次へ</button>
+    </div>
+    <div class="errmsg" id="errMsg" role="alert"></div>
+  </div>
+
+  <!-- データ管理（記録操作から離した位置） -->
+  <div class="manage">
+    <span class="mg-label">データ管理</span>
+    <span class="mg-info" id="manageInfo"></span>
+    <button type="button" class="mg-csv" id="csvBtn2">CSV保存</button>
+    <button type="button" class="mg-danger" id="clearAllBtn">🗑 記録を全件削除…</button>
+  </div>
+
+  <!-- 一覧 -->
+  <div class="list-head">
+    <h2 id="listTitle">記録一覧</h2>
+    <button type="button" class="filter" id="filterBtn">この選手のみ</button>
+  </div>
+  <div id="list"></div>
+
+  <div class="danger-zone">
+    <p class="note">
+      ・インパクトの瞬間に下の赤いボタンを押すと、その時刻が確定します。結果はあとから入力・修正しても時刻は変わりません。<br>
+      ・入力の途中でも次のインパクトを押せます。新しい打球が編集対象になり、前の打球は「未入力」として残るので、あとからタップして続きを入力できます。<br>
+      ・一覧の記録をタップすると、その記録の結果を編集できます。<br>
+      ・選手は選手欄の右端「＋選手追加」から追加できます。選択中の選手は「✎ 名前変更」「削除」で変更・削除できます（選手を削除するとその選手の記録も削除されます）。<br>
+      ・選手情報と分析コメントは記録とは別に保存され、記録の全件削除では消えません（選手を削除すると、その選手の記録と分析コメントも削除されます）。<br>
+      ・当たりは A＝捉えた／B＝ややずれ／C＝つまり・先／D＝空振り です。打球の結果ではなく、バットへの当たり方で判定します。空振りは選手と当たりだけで入力完了になり、打球種類・方向は入力しません。<br>
+      ・選手チップは「次に打つ選手」を選ぶボタンです。押すと編集中の記録は閉じ、その記録の選手は変わりません。記録の選手を直すときは、編集中の記録の見出しの［選手を変更］を使います。<br>
+      ・記録はこの端末のこのブラウザ内に自動保存されます。別の端末やブラウザとは同期されません。<br>
+      ・ブラウザの「履歴・サイトデータの削除」やプライベートブラウズでは消えることがあります。練習後は必ずCSVを保存してください。<br>
+      ・「時計」はビデオカメラで撮影して、カメラとこの端末の時刻差を後から補正するためのものです。
+    </p>
+  </div>
+</main>
+
+
+<!-- ===== 分析レポート ===== -->
+<main class="wrap report" id="reportView">
+  <div class="rp-controls no-print">
+    <label class="rp-field">選手
+      <select id="rpPlayer"></select>
+    </label>
+    <div class="rp-field">日付
+      <div class="rp-date">
+        <button type="button" id="rpPrev" aria-label="前の記録日">◀</button>
+        <input type="date" id="rpDate">
+        <button type="button" id="rpNext" aria-label="次の記録日">▶</button>
+      </div>
+    </div>
+    <label class="rp-field">推移の期間
+      <select id="rpPeriod">
+        <option value="7">直近7日</option>
+        <option value="30" selected>直近30日</option>
+        <option value="90">直近90日</option>
+        <option value="0">全期間</option>
+      </select>
+    </label>
+    <button type="button" class="rp-print" id="rpPrint">印刷・PDF保存</button>
+  </div>
+
+  <section class="rp-import no-print" id="rpImport">
+    <div class="im-row">
+      <label class="im-btn" for="importFile">📂 保存したCSVを取り込む（複数可）</label>
+      <input type="file" id="importFile" accept=".csv,text/csv,text/plain" multiple hidden>
+      <button type="button" class="im-clear" id="importClear" hidden>取り込みを解除</button>
+    </div>
+    <p class="im-status" id="importStatus">過去の練習の推移を見るときは、保存しておいたCSVをまとめて取り込んでください。取り込んだデータはこの画面を開いている間だけ使い、端末には保存しません（容量を使いません）。</p>
+    <ul class="im-msgs" id="importMsgs"></ul>
+  </section>
+
+  <section class="rp-head" id="rpHead"></section>
+
+  <div class="rp-grid">
+    <section class="rp-card" id="cardQuality">
+      <h3>① 当たり（A・B・C・D）の構成比と指標 <span class="rp-scope">対象日</span></h3>
+      <div id="chartQuality"></div>
+    </section>
+    <section class="rp-card" id="cardTrend">
+      <h3>② 日ごとの推移 <span class="rp-scope" id="trendScope"></span></h3>
+      <div class="rp-toggles no-print" id="trendToggles" role="group" aria-label="表示する指標"></div>
+      <div id="chartTrend"></div>
+    </section>
+    <section class="rp-card" id="cardDir">
+      <h3>③ 打球方向の分布 <span class="rp-scope">対象日・D除く</span></h3>
+      <div id="chartDir"></div>
+    </section>
+    <section class="rp-card" id="cardType">
+      <h3>④ 打球種類の構成比 <span class="rp-scope">対象日・D除く</span></h3>
+      <div id="chartType"></div>
+    </section>
+    <section class="rp-card rp-wide" id="cardTypeQ">
+      <h3>⑤ 打球種類ごとの当たり（A・B・C） <span class="rp-scope">対象日・D除く</span></h3>
+      <div id="chartTypeQ"></div>
+    </section>
+  </div>
+
+  <section class="rp-card rp-comment" id="cardComment">
+    <h3>アナリストの分析コメント <span class="cm-status" id="cmStatus" role="status"></span></h3>
+    <p class="cm-for" id="cmFor"></p>
+    <label class="cm-label" for="cmFacts">1. 観察した事実 <small>グラフや数値から読み取れること</small></label>
+    <textarea id="cmFacts" rows="3" placeholder="例：捉えた打球（A）は引っ張り方向に多かった"></textarea>
+    <div class="print-text" id="cmFactsP"></div>
+    <label class="cm-label" for="cmHypo">2. 考察・仮説 <small>傾向の原因として考えられること（推測）</small></label>
+    <textarea id="cmHypo" rows="3" placeholder="例：外角の球に対して踏み込みが浅い可能性"></textarea>
+    <div class="print-text" id="cmHypoP"></div>
+    <label class="cm-label" for="cmNext">3. 次回の確認事項 <small>次の練習で検証したいこと</small></label>
+    <textarea id="cmNext" rows="3" placeholder="例：外角マシンで流し方向の当たりを確認"></textarea>
+    <div class="print-text" id="cmNextP"></div>
+    <p class="cm-note no-print">入力すると自動で保存されます。コメントは選手×日付ごとに記録とは別に保存され、記録の削除や全件削除では消えません。</p>
+  </section>
+
+  <details class="rp-def">
+    <summary>集計の定義（分母）</summary>
+    <ul>
+      <li><b>①当たり：</b>当たり（A＝捉えた・B＝ややずれ・C＝つまり・先・D＝空振り）が入力された記録が分母。当たりが未入力の記録は「判定なし」として除外します（種類・方向が未入力でも、当たりがあれば数えます）。</li>
+      <li><b>指標：</b>空振り率＝D÷(A+B+C+D)、コンタクト率＝(A+B+C)÷(A+B+C+D)、捉えた率（当たった中）＝A÷(A+B+C)、つまり・先率＝C÷(A+B+C)、捉えた率（全スイング）＝A÷(A+B+C+D)。</li>
+      <li><b>②推移：</b>各日の指標（上の定義と同じ分母）。記録のない日は点を打ちません（0%として扱いません）。白抜きの点はその指標の分母が10件未満の日です。</li>
+      <li><b>③打球方向：</b>D（空振り）以外で、方向が入力された記録が分母。</li>
+      <li><b>④打球種類：</b>D（空振り）以外で、種類が入力された記録が分母。</li>
+      <li><b>⑤種類×当たり：</b>種類と当たり（A・B・C）の両方が入力された記録。種類ごとの割合の分母はその種類の件数です。</li>
+      <li><b>入力完了率：</b>入力完了の記録 ÷ その日の全記録。A〜Cは選手・種類・当たり・方向、Dは選手・当たりがそろうと完了です。</li>
+      <li><b>ファール：</b>方向の「ファール」はすべてのファール。旧版の「真後ろ（ファール）」も「ファール」として集計します（旧版では真後ろ以外のファールは各方向に記録されています）。</li>
+    </ul>
+  </details>
+</main>
+
+<!-- ステップ1：インパクト記録（常に画面下部に表示） -->
+<div class="impact-bar">
+  <button type="button" class="impact" id="impactBtn">インパクト記録</button>
+</div>
+
+
+<!-- 全件削除の確認画面 -->
+<div class="modal" id="clearModal" hidden role="dialog" aria-modal="true" aria-labelledby="clearTitle">
+  <div class="modal-box">
+    <h3 id="clearTitle">記録を全件削除しますか？</h3>
+    <p class="cl-count" id="clearCount"></p>
+    <ul class="cl-keep">
+      <li>削除されるもの：すべての打球記録（入力済み・未入力とも）</li>
+      <li>削除されないもの：<span id="clearKeep"></span></li>
+    </ul>
+    <p class="cl-warn">削除すると元に戻せません。先にCSVでバックアップしてください。保存したCSVは、あとで分析画面の「CSVを取り込む」で読み込めば、推移などの分析に使えます。</p>
+    <button type="button" class="cl-csv" id="clearCsv">CSVを保存する</button>
+    <label class="cl-check"><input type="checkbox" id="clearAgree"> CSVを保存した（または不要）ことを確認しました</label>
+    <div class="cl-actions">
+      <button type="button" class="cl-cancel" id="clearCancel">キャンセル</button>
+      <button type="button" class="cl-do" id="clearDo" disabled>全件削除する</button>
+    </div>
+  </div>
+</div>
+
+<!-- CSVの保存方法（スマホ・タブレット） -->
+<div class="modal" id="csvSheet" hidden role="dialog" aria-modal="true" aria-labelledby="csvSheetTitle">
+  <div class="modal-box csv-box">
+    <h3 id="csvSheetTitle">CSVの保存方法を選んでください</h3>
+    <p class="cs-info" id="csvSheetInfo"></p>
+    <button type="button" class="cs-btn cs-main" id="csvShare">共有・ファイルに保存<small>iPhoneは「"ファイル"に保存」、LINE・メール・ドライブにも送れます</small></button>
+    <button type="button" class="cs-btn" id="csvDownload">ダウンロード<small>Androidの Chrome などはこちら</small></button>
+    <button type="button" class="cs-btn" id="csvCopy">テキストとしてコピー<small>保存がうまくいかないとき（LINEの中で開いている場合など）。メモ帳やLINEに貼り付けて送れます</small></button>
+    <textarea id="csvText" class="cs-text" readonly hidden></textarea>
+    <button type="button" class="cl-cancel cs-close" id="csvClose">閉じる</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="clock" id="clock" role="dialog" aria-label="時刻合わせ用の時計">
+  <div class="d" id="clockDate"></div>
+  <div class="t" id="clockTime"></div>
+  <div class="cs" id="clockCs"></div>
+  <div class="hint">この画面をビデオカメラで数秒撮影すると、カメラの時刻とのずれを後から補正できます。<br>画面をタップすると閉じます。</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============================================================
+     設定：ここを編集するだけで選手・選択肢を変更できます
+     ============================================================ */
+  // 初回起動時に1人だけ用意する選手。以降は画面から自由に追加・名前変更・削除できます。
+  const INITIAL_PLAYER_NAME = "選手A";
+  // 旧版で固定だった初期選手（移行時、記録の無いものは引き継がない）
+  const LEGACY_DEFAULT_NAMES = ["選手A", "選手B", "選手C", "選手D", "選手E"];
+  const PLAYER_NAME_MAX = 30;
+
+  const TYPES = [
+    { v: "フライ",   label: "フライ" },
+    { v: "ゴロ",     label: "ゴロ" },
+    { v: "ライナー", label: "ライナー" }
+  ];
+  const STRENGTHS = [
+    // 当たり（コンタクト）の判定。CSVの列名は互換性のため batted_ball_strength のまま
+    { v: "A", label: "A", sub: "捉えた" },
+    { v: "B", label: "B", sub: "ややずれ" },
+    { v: "C", label: "C", sub: "つまり・先" },
+    { v: "D", label: "D", sub: "空振り" }   // 空振り：打球種類・方向は入力しない
+  ];
+  const WHIFF = "D";
+  const LEGACY_FOUL = "真後ろ（ファール）";   // 旧版の方向の値（読み込み時に「ファール」へ変換）
+  const DIRECTIONS = [
+    { v: "引っ張り", label: "引っ張り" },
+    { v: "センター", label: "センター" },
+    { v: "流し",     label: "流し" },
+    { v: "ファール", label: "ファール" }   // すべてのファール（旧「真後ろ（ファール）」もここに移行）
+  ];
+  // メモの定型文（タップでメモ欄に追記）。不要なら [] にしてください。
+  const MEMO_PRESETS = ["芯で捉えた", "差し込まれた", "前足が早く開いた", "タイミング◎", "泳いだ"];
+
+  // CSVの列（順序固定・変更なし）。timestamp には常にインパクト時刻が入ります。
+  const CSV_COLUMNS = [
+    "record_id", "timestamp", "player_name",
+    "batted_ball_type", "batted_ball_strength", "batted_ball_direction", "memo"
+  ];
+
+  // 結果入力で変更してよい項目（これ以外＝record_id・timestamp・epoch_ms・seq は変更不可）
+  // player_name は player_id から自動で決まる（選手名の変更時に追従）ため、直接は書き換えない
+  const RESULT_FIELDS = ["player_id", "batted_ball_type", "batted_ball_strength", "batted_ball_direction", "memo"];
+  const REQUIRED_FIELDS = ["player_id", "batted_ball_type", "batted_ball_strength", "batted_ball_direction"];
+
+  const STORAGE_KEY = "battingRecorder.v1";   // 保存先は従来と同じ（既存データをそのまま引き継ぐ）
+  const DATA_VERSION = 4;   // v4：方向「真後ろ（ファール）」→「ファール」
+  const IMPACT_GUARD_MS = 500;                 // インパクトボタンの二重押し防止
+
+  /* ============================================================
+     状態
+     ============================================================ */
+  let state = {
+    version: DATA_VERSION,
+    seq: 0,            // 通し番号（削除しても再利用しない）
+    records: [],       // 記録（インパクト順）
+    undoStack: [],     // 操作履歴 {kind:"impact", id} / {kind:"result", id, field, prev}
+    players: [],       // 選手リスト [{id, name}]（一元管理・同じキーに保存）
+    player: null,      // 選択中の選手ID（次のインパクトに使う）
+    activeId: null     // 結果を入力中の記録
+  };
+  let filterPlayer = false;
+  let lastImpactAt = 0;
+  let lastPointerImpactAt = 0;
+  let storageOK = true;
+  let memoBefore = null;   // メモ編集開始時の値（取り消し用）
+  let memoBoundId = null;  // メモ欄に今表示している記録のID
+
+  const $ = (id) => document.getElementById(id);
+
+  /* ============================================================
+     日本時間（JST）ユーティリティ：端末のタイムゾーン設定に依存しない
+     ============================================================ */
+  function jstParts(ms) {
+    const d = new Date(ms + 9 * 60 * 60 * 1000);
+    const p = (n, w) => String(n).padStart(w || 2, "0");
+    return {
+      Y: String(d.getUTCFullYear()), M: p(d.getUTCMonth() + 1), D: p(d.getUTCDate()),
+      h: p(d.getUTCHours()), m: p(d.getUTCMinutes()), s: p(d.getUTCSeconds()),
+      cs: p(Math.floor(d.getUTCMilliseconds() / 10)),
+      ds: String(Math.floor(d.getUTCMilliseconds() / 100))
+    };
+  }
+  function jstTimestamp(ms) {
+    const t = jstParts(ms);
+    return `${t.Y}-${t.M}-${t.D} ${t.h}:${t.m}:${t.s}`;
+  }
+  function jstDate(ms) {
+    const t = jstParts(ms);
+    return `${t.Y}-${t.M}-${t.D}`;
+  }
+  function jstClock(ms) {           // 画面表示用（0.1秒まで）
+    const t = jstParts(ms);
+    return `${t.h}:${t.m}:${t.s}.${t.ds}`;
+  }
+  function makeRecordId(ms, seq) {
+    const t = jstParts(ms);
+    const rand = Math.random().toString(36).slice(2, 5).padEnd(3, "0");
+    return `${t.Y}${t.M}${t.D}-${t.h}${t.m}${t.s}-${String(seq).padStart(4, "0")}-${rand}`;
+  }
+
+  /* ============================================================
+     保存・復元（localStorage）＋旧形式からの移行
+     ============================================================ */
+  function load() {
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(STORAGE_KEY);
+    } catch (e) {
+      storageOK = false;
+      showSaveError("保存データを読み込めませんでした。この端末では自動保存が使えない可能性があります（プライベートブラウズ等）。こまめにCSVを保存してください。");
+    }
+    if (!raw) { startFresh(); return; }
+    try {
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== "object") throw new Error("invalid");
+      if ((Number(data.version) || 1) < DATA_VERSION) backupOnce(STORAGE_KEY + ".backup-before-v" + DATA_VERSION, raw);
+      state.records = (Array.isArray(data.records) ? data.records : []).filter((r) => r && r.record_id).map(migrateRecord);
+      state.seq = Math.max(Number(data.seq) || 0, state.records.reduce((m, r) => Math.max(m, r.seq || 0), 0));
+      state.activeId = state.records.some((r) => r.record_id === data.activeId) ? data.activeId : null;
+      migratePlayers(data);
+      state.undoStack = migrateUndo(data.undoStack);
+      state.version = DATA_VERSION;
+    } catch (e) {
+      // 読めないデータは消さずに別キーへ退避してから、新しい状態で起動する
+      backupOnce(STORAGE_KEY + ".corrupt-backup", raw);
+      state.records = []; state.undoStack = []; state.seq = 0; state.activeId = null;
+      startFresh();
+      showSaveError("保存データが壊れていたため読み込めませんでした（元のデータは別の保存領域に退避しました）。新しい状態で起動しています。");
+    }
+  }
+
+  function backupOnce(key, raw) {
+    try { if (!window.localStorage.getItem(key)) window.localStorage.setItem(key, raw); } catch (e) { /* 容量不足など */ }
+  }
+
+  function startFresh() {
+    const p = { id: newPlayerId(), name: INITIAL_PLAYER_NAME };
+    state.players = [p];
+    state.player = p.id;
+  }
+
+  function newPlayerId() {
+    let id;
+    do { id = "p-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); }
+    while (state.players.some((p) => p.id === id));
+    return id;
+  }
+
+  // 選手リストの読み込みと、記録との紐づけ（旧形式からの移行を含む）
+  function migratePlayers(data) {
+    const players = [];
+    const pushName = (name, id) => {
+      if (typeof name !== "string" || !name.trim()) return null;
+      const hit = players.find((p) => playerKey(p.name) === playerKey(name));
+      if (hit) return hit;
+      const p = { id: (typeof id === "string" && id && !players.some((x) => x.id === id)) ? id : null, name: name.trim() };
+      players.push(p);
+      if (!p.id) { state.players = players; p.id = newPlayerId(); }
+      return p;
+    };
+    const saved = Array.isArray(data.players) ? data.players : [];
+    const usedNames = new Set(state.records.map((r) => playerKey(r.player_name)).filter(Boolean));
+
+    if (saved.length && typeof saved[0] === "object") {
+      // 新形式 [{id, name}]
+      saved.forEach((p) => { if (p) pushName(p.name, p.id); });
+    } else {
+      // 旧形式（名前の配列 or 無し）：記録の無い旧初期選手（選手A〜E）は引き継がない
+      saved.forEach((n) => {
+        if (typeof n !== "string") return;
+        const legacy = LEGACY_DEFAULT_NAMES.some((d) => playerKey(d) === playerKey(n));
+        if (!legacy || usedNames.has(playerKey(n))) pushName(n);
+      });
+    }
+    state.players = players;
+
+    // 記録を選手IDに紐づける（IDが無い・見つからない記録は名前で照合、無ければ選手を作る）
+    state.records.forEach((r) => {
+      let p = players.find((x) => x.id === r.player_id);
+      if (!p && r.player_name) p = pushName(r.player_name);
+      r.player_id = p ? p.id : "";
+      r.player_name = p ? p.name : "";
+    });
+    state.players = players;
+
+    if (!players.length && !state.records.length) { startFresh(); return; }
+    if (!players.length) { startFresh(); }   // 記録はあるが選手のいない記録のみ → 初期選手を用意
+
+    // 選択中の選手（新形式はID、旧形式は名前）
+    const byId = state.players.find((p) => p.id === data.player);
+    const byName = typeof data.player === "string" ? state.players.find((p) => playerKey(p.name) === playerKey(data.player)) : null;
+    state.player = (byId || byName || state.players[0]).id;
+  }
+
+  // 取り消し履歴の移行（旧形式の「選手名」の変更履歴は選手IDの変更履歴に変換）
+  function migrateUndo(saved) {
+    if (!Array.isArray(saved)) return [];
+    return saved.map((op) => (typeof op === "string" ? { kind: "impact", id: op } : op))
+      .filter((op) => op && op.id && findRec(op.id))
+      .map((op) => {
+        if (op.kind === "result" && op.field === "player_name") {
+          const p = state.players.find((x) => playerKey(x.name) === playerKey(op.prev));
+          return { kind: "result", id: op.id, field: "player_id", prev: p ? p.id : "" };
+        }
+        return op;
+      })
+      .filter((op) => op.kind === "impact" || RESULT_FIELDS.includes(op.field));
+  }
+
+  // 重複判定用の比較キー（表示・保存する名前そのものは変換しない）
+  // 全角/半角（NFKC）・大文字/小文字・前後の空白・連続した空白の違いを同一視する
+  function playerKey(name) {
+    let s = String(name == null ? "" : name);
+    try { s = s.normalize("NFKC"); } catch (e) { /* 古いブラウザ */ }
+    return s.trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  // 旧形式（v1）の記録は全項目入力済み・時刻は「入力完了時刻」なので、その由来を内部で区別しておく
+  function migrateRecord(r) {
+    const out = Object.assign({}, r);
+    RESULT_FIELDS.concat(["player_name"]).forEach((f) => { if (out[f] == null) out[f] = ""; });
+    if (!out.time_source) out.time_source = "entry";   // v1由来（CSVには出力しない）
+    if (out.batted_ball_direction === LEGACY_FOUL) out.batted_ball_direction = "ファール";   // v4：ファールに統一
+    return out;
+  }
+
+  function persist() {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if (!storageOK) { storageOK = true; hideSaveError(); }
+      return true;
+    } catch (e) {
+      storageOK = false;
+      showSaveError("⚠ 自動保存に失敗しました。ページを閉じる前に必ずCSVを保存してください。（容量不足・プライベートブラウズ等）");
+      return false;
+    } finally {
+      updateCount();
+    }
+  }
+
+  function showSaveError(msg) { $("saveErrorMsg").textContent = msg; $("saveError").classList.add("show"); }
+  function hideSaveError() { $("saveError").classList.remove("show"); }
+
+  /* ============================================================
+     データ操作の基本
+     ============================================================ */
+  const findRec = (id) => state.records.find((r) => r.record_id === id) || null;
+  const activeRec = () => findRec(state.activeId);
+  // 入力完了の条件：A〜Cは選手・種類・当たり・方向、D（空振り）は選手と当たりのみ
+  const isWhiff = (r) => r.batted_ball_strength === WHIFF;
+  const requiredFor = (r) => isWhiff(r) ? ["player_id", "batted_ball_strength"] : REQUIRED_FIELDS;
+  const isComplete = (r) => requiredFor(r).every((f) => r[f]);
+  const missingOf = (r) => requiredFor(r).filter((f) => !r[f]);
+  const pendingRecs = () => state.records.filter((r) => !isComplete(r));
+  const FIELD_JA = {
+    player_id: "選手", batted_ball_type: "種類", batted_ball_strength: "当たり",
+    batted_ball_direction: "方向", memo: "メモ"
+  };
+  const playerById = (id) => state.players.find((p) => p.id === id) || null;
+  const nameOf = (id) => { const p = playerById(id); return p ? p.name : ""; };
+  // 選択中の選手＝次のインパクトに使う選手（編集中の記録の選手とは別）
+  const selectedPlayerId = () => (playerById(state.player) ? state.player : null);
+  let reassignMode = false;   // ［選手を変更］：次に押した選手チップを編集中の記録に反映する
+
+  /* ------------------------------------------------------------
+     ステップ1：インパクト時刻の記録（時刻はこの関数の先頭で確定）
+     ------------------------------------------------------------ */
+  function recordImpact(ms) {
+    if (!state.players.length) { toast("選手が登録されていません。「＋選手追加」から登録してください"); return null; }
+    if (ms - lastImpactAt < IMPACT_GUARD_MS) return null;   // 二重押し防止
+    lastImpactAt = ms;
+    const pid = playerById(state.player) ? state.player : "";
+
+    state.seq += 1;
+    const rec = {
+      record_id: makeRecordId(ms, state.seq),
+      seq: state.seq,
+      timestamp: jstTimestamp(ms),   // 動画編集用：従来と同じ列名・形式（秒単位・JST）
+      epoch_ms: ms,                  // 同じ瞬間のミリ秒値（CSVには出力しない）
+      time_source: "impact",
+      player_id: pid,                // 選手は ID で紐づける
+      player_name: nameOf(pid),      // CSV・表示用（選手名の変更に追従）
+      batted_ball_type: "",
+      batted_ball_strength: "",
+      batted_ball_direction: "",
+      memo: ""
+    };
+    state.records.push(rec);
+    state.undoStack.push({ kind: "impact", id: rec.record_id });
+    trimUndo();
+
+    // 新しいインパクトの記録を必ず編集対象にする（前の記録は入力済みの内容のまま未入力一覧に残る）
+    flushMemo();                       // 前の記録のメモ入力を確定（取り消し履歴に残す）
+    reassignMode = false;
+    state.activeId = rec.record_id;
+    $("errMsg").textContent = "";
+    clearMissing();
+    persist();
+
+    renderAll();
+    const btn = $("impactBtn");
+    btn.classList.add("done");
+    btn.innerHTML = `✓ #${rec.seq} ${jstClock(ms)}<span class="sub">インパクト時刻を記録しました</span>`;
+    clearTimeout(recordImpact._t);
+    recordImpact._t = setTimeout(() => { btn.classList.remove("done"); btn.textContent = "インパクト記録"; }, 900);
+    if (navigator.vibrate) navigator.vibrate(30);
+    return rec;
+  }
+
+  /* ------------------------------------------------------------
+     ステップ2：打球結果の保存（許可された項目だけを書き換える）
+     ------------------------------------------------------------ */
+  function updateResult(id, field, value, opts) {
+    if (!RESULT_FIELDS.includes(field)) throw new Error("変更できない項目です: " + field);
+    const rec = findRec(id);
+    if (!rec) return false;
+    const prev = (opts && "prev" in opts) ? opts.prev : rec[field];
+    if (prev === value && !(opts && opts.force)) return false;
+    rec[field] = value;
+    if (field === "player_id") rec.player_name = nameOf(value);
+    // 同時に変更する項目（例：D選択時に種類・方向を空にする）。取り消しは1回でまとめて戻す
+    let extraPrev = null;
+    if (opts && opts.extra) {
+      extraPrev = {};
+      Object.keys(opts.extra).forEach((f) => {
+        if (!RESULT_FIELDS.includes(f) || f === "player_id") throw new Error("変更できない項目です: " + f);
+        extraPrev[f] = rec[f];
+        rec[f] = opts.extra[f];
+      });
+    }
+    if (!(opts && opts.noUndo)) {
+      const op = { kind: "result", id, field, prev };
+      if (extraPrev) op.extraPrev = extraPrev;
+      state.undoStack.push(op);
+      trimUndo();
+    }
+    persist();
+    return true;
+  }
+
+  function trimUndo() { if (state.undoStack.length > 1000) state.undoStack = state.undoStack.slice(-1000); }
+
+  function requireActive() {
+    const rec = activeRec();
+    if (!rec) { toast("先に「インパクト記録」を押すか、一覧から記録を選んでください"); return null; }
+    return rec;
+  }
+
+  function selectRecord(id) {
+    flushMemo();
+    reassignMode = false;
+    state.activeId = id;
+    persist();
+    $("errMsg").textContent = "";
+    clearMissing();
+    renderAll();
+  }
+
+  function confirmNext() {
+    flushMemo();
+    const rec = requireActive();
+    if (!rec) return;
+    const miss = missingOf(rec);
+    if (miss.length) {
+      miss.forEach(flagMissing);
+      $("errMsg").textContent = `未選択：${miss.map((f) => FIELD_JA[f]).join("・")}（時刻は保存済みです）`;
+      if (navigator.vibrate) navigator.vibrate([40, 40, 40]);
+      return;
+    }
+    endEditing();                              // 古い未入力の記録には戻らず、インパクト待ちに
+    persist();
+    renderAll();
+    toast(`#${rec.seq} を確定しました。次のインパクトを待っています`);
+  }
+
+  function deleteRecord(id) {
+    const wasActive = state.activeId === id;
+    state.records = state.records.filter((r) => r.record_id !== id);
+    state.undoStack = state.undoStack.filter((op) => op.id !== id);
+    if (wasActive) { state.activeId = null; reassignMode = false; }
+    persist();
+    renderAll();
+  }
+
+  // 直前の操作を1つ取り消す：インパクト記録なら記録ごと削除、結果入力ならその項目を元の値に戻す
+  function undoLast() {
+    flushMemo();
+    while (state.undoStack.length) {
+      const op = state.undoStack.pop();
+      const rec = findRec(op.id);
+      if (!rec) continue;
+      if (op.kind === "impact") {
+        state.records = state.records.filter((r) => r.record_id !== op.id);
+        state.undoStack = state.undoStack.filter((o) => o.id !== op.id);
+        if (state.activeId === op.id) { state.activeId = null; reassignMode = false; }
+        persist(); renderAll();
+        toast(`インパクト記録を取り消しました：#${rec.seq}（${rec.timestamp}）`);
+        return;
+      }
+      if (op.kind === "result") {
+        if (op.field === "player_id") {
+          const pid = playerById(op.prev) ? op.prev : "";
+          rec.player_id = pid; rec.player_name = nameOf(pid);
+        } else {
+          rec[op.field] = op.prev;
+        }
+        if (op.extraPrev) Object.keys(op.extraPrev).forEach((f) => { if (RESULT_FIELDS.includes(f) && f !== "player_id") rec[f] = op.extraPrev[f]; });
+        state.activeId = rec.record_id;
+        persist(); renderAll();
+        toast(`#${rec.seq} の${FIELD_JA[op.field]}を元に戻しました`);
+        return;
+      }
+    }
+    persist();
+    toast("取り消せる操作がありません");
+  }
+
+  // 全件削除：確認画面を開く（この時点では何も変更しない）
+  function clearAll() {
+    flushMemo();
+    if (!state.records.length) { toast("記録はありません"); return; }
+    const pend = pendingRecs().length;
+    $("clearCount").textContent = `削除対象：打球記録 ${state.records.length}件` + (pend ? `（うち未入力 ${pend}件）` : "");
+    $("clearKeep").textContent = `選手 ${state.players.length}人の登録情報、分析コメント ${commentCount()}件`;
+    $("clearAgree").checked = false;
+    $("clearDo").disabled = true;
+    $("clearModal").hidden = false;
+    $("clearCancel").focus();
+  }
+  function closeClearModal() { $("clearModal").hidden = true; }
+  // 全件削除：確認画面で実行したときだけ記録を削除（選手・分析コメントは残す）
+  function doClearAll() {
+    if (!$("clearAgree").checked) return;
+    closeClearModal();
+    state.records = [];
+    state.undoStack = [];
+    state.seq = 0;
+    state.activeId = null;
+    persist();
+    renderAll();
+    toast("全件削除しました");
+  }
+
+  /* ============================================================
+     画面の組み立て
+     ============================================================ */
+  function buildPlayers() {
+    const box = $("players");
+    box.innerHTML = "";
+    state.players.forEach((p) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip";
+      b.textContent = p.name; b.title = p.name;
+      b.dataset.id = p.id; b.dataset.v = p.name;
+      b.addEventListener("click", () => choosePlayer(p.id));
+      box.appendChild(b);
+    });
+    // 末尾に常に「＋選手追加」ボタン
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "chip add-player"; add.id = "addPlayerBtn";
+    add.textContent = "＋選手追加";
+    add.addEventListener("click", () => openPlayerEditor("add"));
+    box.appendChild(add);
+  }
+
+  // 選手チップ：通常は「次に打つ選手」を選ぶだけ。編集中の記録の選手は変えず、編集を終える
+  //             ［選手を変更］中だけ、編集中の記録の選手を付け替える
+  function choosePlayer(id) {
+    if (!playerById(id)) return;
+    flushMemo();
+    $("players").classList.remove("missing");
+    const rec = activeRec();
+    if (reassignMode && rec) {
+      reassignMode = false;
+      updateResult(rec.record_id, "player_id", id);
+      // いちばん新しい記録を直した場合（チップの押し忘れ）は、次に打つ選手もその選手にする
+      if (isLatestRecord(rec)) state.player = id;
+      persist();
+      renderAll();
+      toast(`#${rec.seq} の選手を「${nameOf(id)}」に変更しました` + (isLatestRecord(rec) ? "（次に打つ選手も変更）" : ""));
+      return;
+    }
+    reassignMode = false;
+    state.player = id;
+    if (rec && rec.player_id !== id) endEditing();   // 別の選手に替えたら、前の記録の編集を終える（記録はそのまま）
+    persist();
+    renderAll();
+  }
+  const isLatestRecord = (rec) => !!rec && state.records.every((r) => (r.seq || 0) <= (rec.seq || 0));
+  // 編集を終えてインパクト待ちに戻る（記録の内容は変えない）
+  function endEditing() {
+    flushMemo();
+    reassignMode = false;
+    state.activeId = null;
+    $("errMsg").textContent = "";
+    clearMissing();
+  }
+  function toggleReassign() {
+    if (!activeRec()) return;
+    reassignMode = !reassignMode;
+    renderAll();
+    if (reassignMode) toast("この記録の選手を、下の選手チップから選んでください");
+  }
+
+  /* ------------------------------------------------------------
+     選手の管理（追加・名前変更・削除）
+     ------------------------------------------------------------ */
+  // 名前の検証。exceptId は名前変更時の自分自身（大文字小文字だけの変更などを許可）
+  function validatePlayerName(input, exceptId) {
+    const name = String(input == null ? "" : input).trim();
+    if (!name) return { error: "選手名を入力してください" };
+    if (name.length > PLAYER_NAME_MAX) return { error: `選手名は${PLAYER_NAME_MAX}文字以内で入力してください` };
+    const dup = state.players.find((p) => p.id !== exceptId && playerKey(p.name) === playerKey(name));
+    if (dup) return { error: `この選手名はすでに登録されています（${dup.name}）` };
+    return { name };
+  }
+
+  // 追加：登録後、その選手を選択する
+  function addPlayer(input, opts) {
+    const v = validatePlayerName(input);
+    if (v.error) { if (!(opts && opts.quiet)) toast(v.error); return { ok: false, error: v.error }; }
+    const p = { id: newPlayerId(), name: v.name };
+    state.players.push(p);
+    const rec = activeRec();
+    let msg = `選手を追加しました：${p.name}`;
+    if (reassignMode && rec) {
+      // ［選手を変更］中に追加した場合は、その記録の選手にする
+      reassignMode = false;
+      updateResult(rec.record_id, "player_id", p.id);
+      if (isLatestRecord(rec)) state.player = p.id;
+      msg += `（#${rec.seq} の選手に設定）`;
+    } else {
+      // 通常は「次に打つ選手」にする。編集中の記録は閉じるが、その記録の選手は変えない
+      state.player = p.id;
+      if (rec) endEditing();
+    }
+    persist();
+    buildPlayers();
+    renderAll();
+    const box = $("players");
+    const chip = box.querySelector(`.chip[data-id="${p.id}"]`);
+    if (chip) chip.classList.add("just-added");
+    box.scrollLeft = box.scrollWidth;      // 追加した選手と「＋選手追加」が見えるように
+    toast(msg);
+    return { ok: true, player: p };
+  }
+
+  // 名前変更：選手IDは変えず、その選手の全記録の表示名（player_name）を新しい名前に揃える
+  function renamePlayer(id, input, opts) {
+    const p = playerById(id);
+    if (!p) return { ok: false, error: "選手が見つかりません" };
+    const v = validatePlayerName(input, id);
+    if (v.error) { if (!(opts && opts.quiet)) toast(v.error); return { ok: false, error: v.error }; }
+    if (v.name === p.name) return { ok: true, player: p };
+    const old = p.name;
+    p.name = v.name;
+    let n = 0;
+    state.records.forEach((r) => { if (r.player_id === id) { r.player_name = p.name; n++; } });
+    persist();
+    buildPlayers();
+    renderAll();
+    toast(`「${old}」を「${p.name}」に変更しました（記録${n}件に反映）`);
+    return { ok: true, player: p };
+  }
+
+  // 削除：確認後に、選手とその選手の記録を削除する。確認でキャンセルした場合は何も変更しない
+  function deletePlayer(id) {
+    flushMemo();
+    const p = playerById(id);
+    if (!p) return false;
+    const recs = state.records.filter((r) => r.player_id === id);
+    const pend = recs.filter((r) => !isComplete(r)).length;
+    const nCm = commentCount(id);
+    const msg = (recs.length || nCm)
+      ? `選手「${p.name}」を削除します。\n\n` +
+        (recs.length ? `この選手の打球記録 ${recs.length}件` + (pend ? `（うち未入力 ${pend}件）` : "") : "") +
+        (recs.length && nCm ? "と、" : "") + (nCm ? `分析コメント ${nCm}件` : "") +
+        `も一緒に削除されます。元に戻せません。\n\n残したい場合はキャンセルして、先にCSVを保存してください（分析コメントはCSVに含まれません）。`
+      : `選手「${p.name}」を削除します（この選手の記録・分析コメントはありません）。`;
+    if (!window.confirm(msg)) return false;
+    flushComment();
+    deleteCommentsOf(id);
+
+    const ids = new Set(recs.map((r) => r.record_id));
+    state.records = state.records.filter((r) => !ids.has(r.record_id));
+    state.undoStack = state.undoStack.filter((op) =>
+      !ids.has(op.id) && !(op.kind === "result" && op.field === "player_id" && op.prev === id));
+    state.players = state.players.filter((x) => x.id !== id);
+    // 取り込み中のCSVにこの選手の記録があれば、「CSVのみ」の選手として残す（CSV側のデータは消さない）
+    imported.forEach((r) => { if (r.player_id === id) r.player_id = playerIdForCsvName(r.player_name); });
+    if (state.player === id) state.player = state.players.length ? state.players[0].id : null;
+    if (!findRec(state.activeId)) { state.activeId = null; reassignMode = false; }
+    closePlayerEditor();
+    persist();
+    buildPlayers();
+    renderAll();
+    toast(`選手「${p.name}」を削除しました` + (recs.length ? `（記録${recs.length}件も削除）` : ""));
+    return true;
+  }
+
+  // 入力欄（追加・名前変更で共用）
+  let editorMode = null, editorTarget = null;
+  function openPlayerEditor(mode) {
+    flushMemo();
+    if (mode === "rename") {
+      editorTarget = selectedPlayerId();
+      if (!editorTarget) { toast("名前を変更する選手を選んでください"); return; }
+    } else {
+      editorTarget = null;
+    }
+    editorMode = mode;
+    const p = playerById(editorTarget);
+    $("peTitle").textContent = mode === "rename" ? `「${p.name}」の名前を変更` : "新しい選手を追加（追加後に自動で選択されます）";
+    $("peOk").textContent = mode === "rename" ? "変更" : "追加";
+    $("peErr").textContent = "";
+    const input = $("peInput");
+    input.value = mode === "rename" ? p.name : "";
+    input.maxLength = PLAYER_NAME_MAX;
+    $("playerEditor").hidden = false;
+    input.focus();
+    if (mode === "rename") input.select();
+  }
+  function closePlayerEditor() {
+    $("playerEditor").hidden = true;
+    $("peErr").textContent = "";
+    editorMode = null; editorTarget = null;
+  }
+  function submitPlayerEditor() {
+    const val = $("peInput").value;
+    const res = editorMode === "rename" ? renamePlayer(editorTarget, val, { quiet: true }) : addPlayer(val, { quiet: true });
+    if (res.ok) { $("peInput").blur(); closePlayerEditor(); }
+    else { $("peErr").textContent = res.error; $("peInput").focus(); }
+  }
+
+  function buildRow(rowId, field, options) {
+    const row = $(rowId);
+    options.forEach((o) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "opt"; b.dataset.v = o.v;
+      b.setAttribute("aria-pressed", "false");
+      b.innerHTML = o.sub ? `${escapeHtml(o.label)}<small>${escapeHtml(o.sub)}</small>` : escapeHtml(o.label);
+      b.addEventListener("click", () => {
+        const rec = requireActive();
+        if (!rec) return;
+        if (isWhiff(rec) && (field === "batted_ball_type" || field === "batted_ball_direction")) {
+          toast("空振り（D）では種類・方向は入力しません。当たりをA〜Cに変えると入力できます");
+          return;
+        }
+        const value = rec[field] === o.v ? "" : o.v;   // もう一度押すと解除
+        if (field === "batted_ball_strength" && value === WHIFF && (rec.batted_ball_type || rec.batted_ball_direction)) {
+          // 空振りには種類・方向を割り当てない（取り消しで元に戻せる）
+          updateResult(rec.record_id, field, value, { extra: { batted_ball_type: "", batted_ball_direction: "" } });
+        } else {
+          updateResult(rec.record_id, field, value);
+        }
+        row.classList.remove("missing");
+        if (isComplete(rec)) $("errMsg").textContent = "";
+        renderAll();
+      });
+      row.appendChild(b);
+    });
+  }
+
+  function buildPresets() {
+    const box = $("presets");
+    if (!MEMO_PRESETS.length) { box.style.display = "none"; return; }
+    MEMO_PRESETS.forEach((txt) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "preset"; b.textContent = "+ " + txt;
+      b.addEventListener("click", () => {
+        flushMemo();
+        const rec = requireActive();
+        if (!rec) return;
+        const cur = rec.memo.trim();
+        updateResult(rec.record_id, "memo", cur ? (cur + "、" + txt) : txt);
+        renderAll();
+      });
+      box.appendChild(b);
+    });
+  }
+
+  // メモ：入力のたびに即保存（画面を閉じても残る）。取り消しは「編集開始前の値」へ1回で戻す
+  function onMemoFocus() { const r = activeRec(); memoBefore = r ? { id: r.record_id, value: r.memo } : null; }
+  function onMemoInput(e) {
+    const rec = activeRec();
+    if (!rec) { e.target.value = ""; requireActive(); return; }
+    if (!memoBefore || memoBefore.id !== rec.record_id) memoBefore = { id: rec.record_id, value: rec.memo };
+    updateResult(rec.record_id, "memo", e.target.value, { noUndo: true });
+    renderList(); renderEditHead();
+  }
+  function flushMemo() {
+    if (!memoBefore) return;
+    const rec = findRec(memoBefore.id);
+    if (rec && rec.memo !== memoBefore.value) {
+      state.undoStack.push({ kind: "result", id: rec.record_id, field: "memo", prev: memoBefore.value });
+      trimUndo();
+      persist();
+    }
+    memoBefore = null;
+  }
+
+  function renderEditHead() {
+    const head = $("editHead");
+    const rec = activeRec();
+    head.classList.toggle("active", !!rec);
+    $("resultArea").classList.toggle("disabled", !rec);
+    if (!rec) {
+      head.innerHTML = state.players.length
+        ? `<span class="idle">インパクト待ち：打った瞬間に下の赤いボタンを押してください</span>`
+        : `<span class="idle">選手が登録されていません。選手欄の「＋選手追加」から登録してください</span>`;
+      return;
+    }
+    const done = isComplete(rec);
+    head.innerHTML =
+      `<span class="no">#${rec.seq}</span>
+       <span class="grow"><span class="time">インパクト ${escapeHtml(jstClock(rec.epoch_ms || 0))}</span>
+       ${rec.player_name ? ` ｜ <span class="who">${escapeHtml(rec.player_name)}</span>` : ""}</span>
+       <span class="badge ${done ? "done" : "pend"}">${done ? "入力済" : "未入力"}</span>
+       <button type="button" class="reassign-btn${reassignMode ? " on" : ""}" id="reassignBtn">${reassignMode ? "やめる" : "選手を変更"}</button>`;
+    $("reassignBtn").addEventListener("click", toggleReassign);
+  }
+
+  function renderPending() {
+    const box = $("pendingRow");
+    box.innerHTML = "";
+    const list = pendingRecs();
+    if (!list.length) { box.style.display = "none"; return; }
+    box.style.display = "flex";
+    list.forEach((r) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pchip" + (r.record_id === state.activeId ? " cur" : "");
+      b.textContent = `#${r.seq} ${jstClock(r.epoch_ms || 0).slice(0, 8)}${r.player_name ? " " + r.player_name : ""}`;
+      b.addEventListener("click", () => selectRecord(r.record_id));
+      box.appendChild(b);
+    });
+  }
+
+  function renderInputs() {
+    const rec = activeRec();
+    if (!rec) reassignMode = false;
+    const selId = selectedPlayerId();
+    const shownId = reassignMode && rec ? rec.player_id : selId;
+    $("players").classList.toggle("reassign", reassignMode);
+    document.querySelectorAll("#players .chip[data-id]").forEach((b) => {
+      const on = b.dataset.id === shownId;
+      b.classList.toggle("sel", on);
+      b.classList.remove("next");
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    $("renamePlayerBtn").disabled = !selId;
+    $("deletePlayerBtn").disabled = !selId;
+    [["rowType", "batted_ball_type"], ["rowStr", "batted_ball_strength"], ["rowDir", "batted_ball_direction"]].forEach(([rowId, f]) => {
+      document.querySelectorAll(`#${rowId} .opt`).forEach((b) => {
+        const on = !!rec && b.dataset.v === rec[f];
+        b.classList.toggle("sel", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+    });
+    // D（空振り）のときは種類・方向を入力対象外として表示
+    const whiff = !!rec && isWhiff(rec);
+    ["rowType", "rowDir"].forEach((id) => {
+      $(id).classList.toggle("na", whiff);
+      $(id).querySelectorAll(".opt").forEach((b) => b.setAttribute("aria-disabled", whiff ? "true" : "false"));
+    });
+    $("whiffNote").hidden = !whiff;
+    // メモ欄：編集対象が変わったら（入力中でも）必ずその記録のメモに差し替える
+    const memo = $("memo");
+    const recId = rec ? rec.record_id : null;
+    if (recId !== memoBoundId || document.activeElement !== memo) {
+      memo.value = rec ? rec.memo : "";
+      if (recId !== memoBoundId && document.activeElement === memo) memoBefore = rec ? { id: recId, value: rec.memo } : null;
+      memoBoundId = recId;
+    }
+
+    const today = jstDate(Date.now());
+    if (!state.players.length) {
+      $("todayCount").textContent = "選手が0人です。「＋選手追加」から登録してください";
+    } else if (reassignMode && rec) {
+      $("todayCount").textContent = `#${rec.seq} の選手を選んでください`;
+    } else if (selId) {
+      const n = state.records.filter((r) => r.player_id === selId && r.timestamp.startsWith(today)).length;
+      $("todayCount").textContent = `次に打つ選手：${nameOf(selId)}（本日 ${n}件）`;
+    } else {
+      $("todayCount").textContent = "選手を選んでください";
+    }
+  }
+
+  // 選手が0人のときはインパクト記録を無効化
+  function renderImpact() {
+    const btn = $("impactBtn");
+    const off = !state.players.length;
+    btn.classList.toggle("off", off);
+    btn.setAttribute("aria-disabled", off ? "true" : "false");
+    if (off) btn.textContent = "選手を追加すると記録できます";
+    else if (!btn.classList.contains("done") && btn.textContent !== "インパクト記録") btn.textContent = "インパクト記録";
+  }
+
+  function updateCount() {
+    const b = $("countBadge");
+    const pend = pendingRecs().length;
+    b.textContent = `保存 ${state.records.length}件` + (pend ? `（未入力${pend}）` : "");
+    b.classList.toggle("err", !storageOK);
+    const mi = $("manageInfo");
+    if (mi) mi.textContent = `記録 ${state.records.length}件` + (pend ? `（未入力 ${pend}件）` : "") + ` ／ 分析コメント ${commentCount()}件`;
+  }
+
+  function strengthLabel(v) {
+    const s = STRENGTHS.find((x) => x.v === v);
+    return s ? `${s.label}（${s.sub}）` : v;
+  }
+
+  function renderList() {
+    const list = $("list");
+    list.innerHTML = "";
+    let recs = state.records.slice().reverse();     // 新しい順
+    const fb = $("filterBtn");
+    const curPlayer = selectedPlayerId();
+    if (filterPlayer && curPlayer) {
+      recs = recs.filter((r) => r.player_id === curPlayer);
+      fb.classList.add("on"); fb.textContent = "全員を表示";
+      $("listTitle").textContent = `記録一覧（${nameOf(curPlayer)}：${recs.length}件）`;
+    } else {
+      fb.classList.remove("on"); fb.textContent = "この選手のみ";
+      $("listTitle").textContent = `記録一覧（${state.records.length}件）`;
+    }
+    if (!recs.length) {
+      list.innerHTML = '<div class="empty">まだ記録がありません</div>';
+      return;
+    }
+    const tag = (cls, v, label) => v
+      ? `<span class="tag ${cls}">${escapeHtml(label || v)}</span>`
+      : `<span class="tag none">${escapeHtml(cls === "player" ? "選手？" : "－")}</span>`;
+    const frag = document.createDocumentFragment();
+    recs.forEach((r) => {
+      const done = isComplete(r);
+      const card = document.createElement("div");
+      card.className = "card" + (done ? "" : " pend") + (r.record_id === state.activeId ? " cur" : "");
+      card.dataset.id = r.record_id;
+      card.innerHTML =
+        `<div class="main">
+           <div class="meta"><b>#${r.seq}</b><span>${escapeHtml(r.timestamp)}</span>
+             <span class="badge ${done ? "done" : "pend"}">${done ? "入力済" : "未入力"}</span></div>
+           <div class="tags">
+             ${tag("player", r.player_name)}
+             ${isWhiff(r) ? "" : tag("type", r.batted_ball_type)}
+             ${r.batted_ball_strength ? `<span class="tag s${escapeHtml(r.batted_ball_strength)}">${escapeHtml(strengthLabel(r.batted_ball_strength))}</span>` : tag("str", "")}
+             ${isWhiff(r) ? "" : tag("dir", r.batted_ball_direction)}
+           </div>
+           ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ""}
+           ${r.record_id === state.activeId ? `<div class="hint">▲ 入力中</div>` : `<div class="hint">タップして編集</div>`}
+         </div>`;
+      card.querySelector(".main").addEventListener("click", () => { selectRecord(r.record_id); window.scrollTo({ top: 0, behavior: "smooth" }); });
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "del"; del.textContent = "削除";
+      let timer = null;
+      del.addEventListener("click", () => {
+        if (!del.classList.contains("confirm-del")) {   // 1回目：確認状態にする
+          del.classList.add("confirm-del"); del.textContent = "本当に削除";
+          timer = setTimeout(() => { del.classList.remove("confirm-del"); del.textContent = "削除"; }, 3000);
+          return;
+        }
+        clearTimeout(timer);                              // 2回目：削除
+        deleteRecord(r.record_id);
+        toast(`#${r.seq} を削除しました`);
+      });
+      card.appendChild(del);
+      frag.appendChild(card);
+    });
+    list.appendChild(frag);
+  }
+
+  function renderAll() {
+    renderEditHead(); renderPending(); renderInputs(); renderImpact(); renderList(); updateCount();
+    if (currentView === "report") renderReport();   // 記録の追加・編集・削除をレポートに即時反映
+  }
+
+  const FIELD_ROW = {
+    player_id: "players", batted_ball_type: "rowType",
+    batted_ball_strength: "rowStr", batted_ball_direction: "rowDir"
+  };
+  function flagMissing(field) {
+    const el = $(FIELD_ROW[field]);
+    if (!el) return;
+    el.classList.remove("missing");
+    void el.offsetWidth;            // アニメーションを再生し直す
+    el.classList.add("missing");
+  }
+  function clearMissing() { Object.values(FIELD_ROW).forEach((id) => $(id).classList.remove("missing")); }
+
+  /* ============================================================
+     CSV出力（列・形式は従来どおり。timestamp＝インパクト時刻）
+     ============================================================ */
+  function csvEscape(v) {
+    const s = v == null ? "" : String(v);
+    if (/[",\r\n]/.test(s) || /^\s|\s$/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+  function buildCsv(records) {
+    const lines = [CSV_COLUMNS.join(",")];
+    records.forEach((r) => lines.push(CSV_COLUMNS.map((c) => csvEscape(r[c])).join(",")));
+    return "﻿" + lines.join("\r\n") + "\r\n";   // UTF-8 BOM付き・CRLF（Excel向け）
+  }
+  // CSV出力：PCはそのままダウンロード、スマホ・タブレットは保存方法を選ぶ画面を出す
+  function downloadCsv() {
+    flushMemo();
+    if (!state.records.length) { toast("記録が0件のためCSVを作成できません"); return; }
+    const csv = buildCsv(state.records);
+    const fname = `batting_records_${jstDate(Date.now())}.csv`;
+    if (isTouchDevice()) { openCsvSheet(csv, fname); return; }
+    saveCsvByDownload(csv, fname);
+  }
+  function isTouchDevice() {
+    try { return window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 1; } catch (e) { return false; }
+  }
+  function csvDoneToast(how) {
+    const pend = pendingRecs().length;
+    toast(`${state.records.length}件のCSVを${how}` + (pend ? `（未入力${pend}件は結果が空欄）` : ""));
+  }
+  // 方法1：ファイルとしてダウンロード（PC・Androidの標準ブラウザ向け）
+  function saveCsvByDownload(csv, fname) {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fname;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // スマホではダウンロード開始が遅れることがあるので、しばらく解放しない
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    csvDoneToast("出力しました");
+  }
+  // 方法2：共有メニュー（iPhoneの「ファイルに保存」、LINE・メール・ドライブへの送信など）
+  async function saveCsvByShare(csv, fname) {
+    try {
+      const file = new File([csv], fname, { type: "text/csv" });
+      if (!(navigator.canShare && navigator.canShare({ files: [file] }))) throw new Error("unsupported");
+      await navigator.share({ files: [file], title: fname });
+      csvDoneToast("共有しました");
+      return true;
+    } catch (e) {
+      if (e && e.name === "AbortError") return false;   // 共有メニューを閉じただけ
+      toast("このブラウザでは共有できません。「ダウンロード」か「コピー」を使ってください");
+      return false;
+    }
+  }
+  // 方法3：テキストとしてコピー（アプリ内ブラウザなど、保存ができない環境でも使える）
+  async function copyCsvText() {
+    const ta = $("csvText");
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(ta.value);
+      } else {
+        ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+        if (!document.execCommand("copy")) throw new Error("copy failed");
+      }
+      toast("CSVのテキストをコピーしました。メモ帳やLINEに貼り付けて送れます");
+    } catch (e) {
+      ta.focus(); ta.select();
+      toast("自動でコピーできませんでした。下の欄を長押しして「すべて選択」→「コピー」してください");
+    }
+  }
+  let csvSheetData = null;
+  function openCsvSheet(csv, fname) {
+    csvSheetData = { csv, fname };
+    const canShare = (() => {
+      try { return !!(navigator.canShare && navigator.canShare({ files: [new File([csv], fname, { type: "text/csv" })] })); } catch (e) { return false; }
+    })();
+    $("csvShare").hidden = !canShare;
+    $("csvSheetInfo").textContent = `${state.records.length}件の記録（${fname}）`;
+    $("csvText").value = csv.replace(/^\uFEFF/, "");
+    $("csvText").hidden = true;
+    $("csvSheet").hidden = false;
+  }
+  function closeCsvSheet() { $("csvSheet").hidden = true; csvSheetData = null; }
+
+  /* ============================================================
+     時刻合わせ用の大時計
+     ============================================================ */
+  let clockRAF = null;
+  function openClock() {
+    $("clock").classList.add("show");
+    const tick = () => {
+      const t = jstParts(Date.now());
+      $("clockDate").textContent = `${t.Y}-${t.M}-${t.D} JST`;
+      $("clockTime").textContent = `${t.h}:${t.m}:${t.s}`;
+      $("clockCs").textContent = `.${t.cs}`;
+      clockRAF = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+  function closeClock() {
+    $("clock").classList.remove("show");
+    if (clockRAF) cancelAnimationFrame(clockRAF);
+    clockRAF = null;
+  }
+
+  /* ============================================================
+     その他
+     ============================================================ */
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+  }
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  /* ============================================================
+     起動
+     ============================================================ */
+  function init() {
+    load();
+    loadComments();
+    buildPlayers();
+    buildRow("rowType", "batted_ball_type", TYPES);
+    buildRow("rowStr", "batted_ball_strength", STRENGTHS);
+    buildRow("rowDir", "batted_ball_direction", DIRECTIONS);
+    buildPresets();
+
+    // インパクト：指が触れた瞬間（pointerdown）に時刻を取得。click は離した時に発火して遅れるため補助のみ
+    const impactBtn = $("impactBtn");
+    impactBtn.addEventListener("pointerdown", (e) => {
+      const now = Date.now();               // ← 最初に時刻を確定
+      if (e.button != null && e.button > 0) return;
+      lastPointerImpactAt = now;
+      recordImpact(now);
+    });
+    impactBtn.addEventListener("click", () => {
+      const now = Date.now();
+      if (now - lastPointerImpactAt < 1500) return;   // pointerdownで記録済み
+      recordImpact(now);                               // キーボード操作など
+    });
+    impactBtn.addEventListener("contextmenu", (e) => e.preventDefault());
+
+    $("confirmBtn").addEventListener("click", confirmNext);
+    $("undoBtn").addEventListener("click", undoLast);
+    $("csvBtn").addEventListener("click", downloadCsv);
+    $("clearAllBtn").addEventListener("click", clearAll);
+    $("clockBtn").addEventListener("click", openClock);
+    $("clock").addEventListener("click", closeClock);
+    $("filterBtn").addEventListener("click", () => { filterPlayer = !filterPlayer; renderList(); });
+    $("restoreClose").addEventListener("click", () => $("restoreBanner").classList.remove("show"));
+    const memo = $("memo");
+    memo.addEventListener("focus", onMemoFocus);
+    memo.addEventListener("input", onMemoInput);
+    memo.addEventListener("blur", () => { flushMemo(); renderAll(); });
+    memo.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } });
+    window.addEventListener("pagehide", () => { flushMemo(); persist(); flushComment(); });
+    setupReport();
+    document.body.dataset.view = "record";
+
+    // 選手管理
+    $("renamePlayerBtn").addEventListener("click", () => openPlayerEditor("rename"));
+    $("deletePlayerBtn").addEventListener("click", () => { const id = selectedPlayerId(); if (id) deletePlayer(id); });
+    $("peOk").addEventListener("click", submitPlayerEditor);
+    $("peCancel").addEventListener("click", closePlayerEditor);
+    $("peInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); submitPlayerEditor(); }
+      if (e.key === "Escape") closePlayerEditor();
+    });
+    $("peInput").addEventListener("input", () => { $("peErr").textContent = ""; });
+
+    persist();   // 移行後・初回の状態を保存（選手IDを固定する）
+
+    if (state.records.length) {
+      const last = state.records[state.records.length - 1];
+      const pend = pendingRecs().length;
+      $("restoreMsg").textContent =
+        `前回までの記録が ${state.records.length}件 残っています` + (pend ? `（うち未入力 ${pend}件）` : "") +
+        `（最新：${last.timestamp}）。新しい日の練習なら、CSVを保存してから全件削除すると整理しやすくなります。`;
+      $("restoreBanner").classList.add("show");
+    }
+    renderAll();
+  }
+
+  /* ============================================================
+     分析コメント（記録とは別のキーに保存：選手ID×日付）
+     ============================================================ */
+  const COMMENTS_KEY = "battingRecorder.comments.v1";
+  let comments = {};          // "選手ID|YYYY-MM-DD" → {player_id, date, facts, hypothesis, next, player_name, updated_at}
+  let commentsOK = true;
+  let cmBoundKey = null, cmBound = null, cmTimer = null, cmDirty = false;
+  const CM_FIELDS = [["cmFacts", "facts"], ["cmHypo", "hypothesis"], ["cmNext", "next"]];
+  const commentKey = (pid, date) => `${pid}|${date}`;
+
+  function loadComments() {
+    let raw = null;
+    try { raw = window.localStorage.getItem(COMMENTS_KEY); } catch (e) { commentsOK = false; return; }
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      comments = (data && typeof data.comments === "object" && data.comments) ? data.comments : {};
+    } catch (e) {
+      backupOnce(COMMENTS_KEY + ".corrupt-backup", raw);
+      comments = {};
+      showSaveError("分析コメントの保存データが壊れていたため読み込めませんでした（元のデータは別の保存領域に退避しました）。");
+    }
+  }
+  function saveComments() {
+    try {
+      window.localStorage.setItem(COMMENTS_KEY, JSON.stringify({ version: 1, comments }));
+      commentsOK = true;
+      return true;
+    } catch (e) {
+      commentsOK = false;
+      return false;
+    }
+  }
+  function commentCount(pid) {
+    return Object.values(comments).filter((c) => c && (!pid || c.player_id === pid)).length;
+  }
+  function deleteCommentsOf(pid) {
+    Object.keys(comments).forEach((k) => { if (comments[k] && comments[k].player_id === pid) delete comments[k]; });
+    if (cmBound && cmBound.pid === pid) { cmBoundKey = null; cmBound = null; cmDirty = false; }
+    saveComments();
+  }
+  function setCmStatus(text, cls) {
+    const el = $("cmStatus");
+    el.textContent = text;
+    el.className = "cm-status" + (cls ? " " + cls : "");
+  }
+  function syncCommentPrint() {
+    CM_FIELDS.forEach(([id]) => { $(id + "P").textContent = $(id).value.trim() || "（記入なし）"; });
+  }
+  // 表示中のレポートにコメント欄を結びつける。切り替える前に、元のレポートへ確実に保存する
+  function bindComment(pid, date) {
+    const key = pid && date ? commentKey(pid, date) : null;
+    if (key === cmBoundKey) return;
+    flushComment();
+    cmBoundKey = key;
+    cmBound = key ? { pid, date } : null;
+    const c = key ? comments[key] : null;
+    CM_FIELDS.forEach(([id, f]) => {
+      const ta = $(id);
+      ta.value = c && c[f] ? c[f] : "";
+      ta.disabled = !key;
+    });
+    syncCommentPrint();
+    if (!key) setCmStatus("選手を選ぶと入力できます", "");
+    else if (c) setCmStatus(`保存済み（${String(c.updated_at || "").slice(5, 16).replace("T", " ")}）`, "ok");
+    else setCmStatus("未記入", "");
+  }
+  function onCommentInput() {
+    if (!cmBoundKey) return;
+    cmDirty = true;
+    setCmStatus("未保存の変更があります…", "dirty");
+    syncCommentPrint();
+    clearTimeout(cmTimer);
+    cmTimer = setTimeout(flushComment, 600);
+  }
+  function flushComment() {
+    clearTimeout(cmTimer);
+    if (!cmDirty || !cmBoundKey || !cmBound) return true;
+    const vals = {};
+    CM_FIELDS.forEach(([id, f]) => { vals[f] = $(id).value; });
+    const empty = CM_FIELDS.every(([, f]) => !vals[f].trim());
+    if (empty) delete comments[cmBoundKey];
+    else comments[cmBoundKey] = Object.assign({
+      player_id: cmBound.pid, date: cmBound.date, player_name: rpName(cmBound.pid),
+      updated_at: jstTimestamp(Date.now()).replace(" ", "T")
+    }, vals);
+    if (saveComments()) {
+      cmDirty = false;
+      setCmStatus(empty ? "空欄のため保存データを削除しました" : `保存しました（${jstTimestamp(Date.now()).slice(11, 16)}）`, "ok");
+      updateCount();
+      return true;
+    }
+    // 保存に失敗しても、入力内容はこの画面を開いている間は残す（次の入力・切り替え時に再保存を試みる）
+    setCmStatus("⚠ 保存に失敗しました。内容をコピーして控えてください", "err");
+    toast("分析コメントの保存に失敗しました（容量不足・プライベートブラウズ等）");
+    return false;
+  }
+
+
+  /* ============================================================
+     CSVの取り込み（分析専用・メモリ上のみ。端末には保存しない）
+     ============================================================ */
+  // 取り込んだ記録：{ record_id, timestamp, player_id, player_name, batted_ball_*, memo, _file }
+  let imported = [];
+  let importedFiles = [];          // 取り込んだファイル名
+  let csvOnlyPlayers = [];         // アプリに登録されていない選手（CSVの名前だけで識別）{id, name}
+
+  // レポートで使う全記録：この端末の記録を優先し、同じ record_id の取り込み分は除く
+  function reportRecords() {
+    if (!imported.length) return state.records;
+    const own = new Set(state.records.map((r) => r.record_id));
+    return state.records.concat(imported.filter((r) => !own.has(r.record_id)));
+  }
+  // レポートの選手一覧（登録済みの選手＋CSVにだけいる選手）
+  function reportPlayers() {
+    const usedCsv = new Set(imported.map((r) => r.player_id));
+    return state.players.map((p) => ({ id: p.id, name: p.name, csvOnly: false }))
+      .concat(csvOnlyPlayers.filter((p) => usedCsv.has(p.id)).map((p) => ({ id: p.id, name: p.name, csvOnly: true })));
+  }
+  const rpPlayerById = (id) => reportPlayers().find((p) => p.id === id) || null;
+  const rpName = (id) => { const p = rpPlayerById(id); return p ? p.name : ""; };
+
+  // CSVの文字列を行・列に分解（ダブルクォート・カンマ・改行を含む値に対応）
+  function parseCsv(text) {
+    const rows = []; let row = [], val = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { val += '"'; i++; } else q = false; }
+        else val += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(val); val = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(val); rows.push(row); row = []; val = "";
+      } else val += c;
+    }
+    if (val !== "" || row.length) { row.push(val); rows.push(row); }
+    return rows.filter((r) => r.some((v) => v.trim() !== ""));
+  }
+  // 「2026/10/13 17:33」（Excelで保存し直した形）なども「2026-10-13 17:33:00」にそろえる
+  function normalizeTimestamp(v) {
+    const m = String(v || "").trim().match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return null;
+    const p2 = (x) => String(x).padStart(2, "0");
+    return `${m[1]}-${p2(m[2])}-${p2(m[3])} ${p2(m[4])}:${m[5]}:${p2(m[6] || 0)}`;
+  }
+  function readFileText(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onerror = () => reject(fr.error);
+      fr.onload = () => {
+        const buf = new Uint8Array(fr.result);
+        let text = new TextDecoder("utf-8").decode(buf);
+        // Excelで保存し直したCSV（Shift_JIS）は文字化けするので読み直す
+        if (text.includes("�")) { try { text = new TextDecoder("shift_jis").decode(buf); } catch (e) { /* そのまま */ } }
+        resolve(text.replace(/^﻿/, ""));
+      };
+      fr.readAsArrayBuffer(file);
+    });
+  }
+  // 名前から選手を決める：登録済みの選手と同じ名前ならその選手、なければ「CSVのみ」の選手
+  function playerIdForCsvName(name) {
+    const n = String(name || "").trim();
+    if (!n) return "";
+    const reg = state.players.find((p) => playerKey(p.name) === playerKey(n));
+    if (reg) return reg.id;
+    let v = csvOnlyPlayers.find((p) => playerKey(p.name) === playerKey(n));
+    if (!v) { v = { id: "csv:" + playerKey(n), name: n }; csvOnlyPlayers.push(v); }
+    return v.id;
+  }
+  async function importCsvFiles(fileList) {
+    const files = [...(fileList || [])];
+    if (!files.length) return;
+    const msgs = [];
+    const known = new Set(reportRecords().map((r) => r.record_id));
+    let added = 0, dup = 0;
+    for (const file of files) {
+      let text;
+      try { text = await readFileText(file); } catch (e) { msgs.push(`${file.name}：読み込めませんでした`); continue; }
+      const rows = parseCsv(text);
+      if (!rows.length) { msgs.push(`${file.name}：中身が空です`); continue; }
+      const head = rows[0].map((h) => h.trim());
+      const col = (n) => head.indexOf(n);
+      if (col("timestamp") < 0 || col("player_name") < 0) {
+        msgs.push(`${file.name}：このアプリのCSVではないため取り込みませんでした（timestamp・player_name の列がありません）`);
+        continue;
+      }
+      const get = (r, n) => (col(n) >= 0 ? String(r[col(n)] == null ? "" : r[col(n)]).trim() : "");
+      let ok = 0, bad = 0, fdup = 0, idBroken = 0;
+      rows.slice(1).forEach((r, i) => {
+        const ts = normalizeTimestamp(get(r, "timestamp"));
+        if (!ts) { bad++; return; }
+        let id = get(r, "record_id");
+        // Excelで保存し直すと record_id が「2.0261E+13」のように壊れるので、その場合はファイル名＋行番号で区別
+        if (!/^\d{8}-\d{6}-\d+-\w+$/.test(id)) { idBroken++; id = `csv:${file.name}#${i + 1}`; }
+        if (known.has(id)) { fdup++; return; }
+        known.add(id);
+        const name = get(r, "player_name");
+        const pid = playerIdForCsvName(name);
+        const str = get(r, "batted_ball_strength").toUpperCase();
+        const rec = {
+          record_id: id, timestamp: ts, player_id: pid, player_name: pid ? (rpName(pid) || name) : "",
+          batted_ball_type: get(r, "batted_ball_type"),
+          batted_ball_strength: ["A", "B", "C", "D"].includes(str) ? str : "",
+          batted_ball_direction: get(r, "batted_ball_direction") === LEGACY_FOUL ? "ファール" : get(r, "batted_ball_direction"),
+          memo: get(r, "memo"), _file: file.name
+        };
+        if (isWhiff(rec)) { rec.batted_ball_type = ""; rec.batted_ball_direction = ""; }
+        imported.push(rec); ok++;
+      });
+      added += ok; dup += fdup;
+      if (!importedFiles.includes(file.name)) importedFiles.push(file.name);
+      if (bad) msgs.push(`${file.name}：日時を読み取れない行 ${bad}件を除外しました`);
+      if (idBroken) msgs.push(`${file.name}：Excelで保存し直したためか record_id が壊れている行が ${idBroken}件あります（集計には使えます）`);
+    }
+    renderImportStatus(msgs, added, dup);
+    // 選んでいる選手に記録がなければ、記録のある選手に切り替え、その日に記録がなければ最新の記録日を表示
+    flushComment();
+    if (!rpPlayerById(rp.playerId) || !datesOf(rp.playerId).length) {
+      const withRec = reportPlayers().find((p) => datesOf(p.id).length);
+      rp.playerId = (withRec || reportPlayers()[0] || {}).id || null;
+    }
+    if (rp.playerId && !datesOf(rp.playerId).includes(rp.date)) rp.date = latestDateOf(rp.playerId) || rp.date;
+    renderReport();
+    toast(`${added}件を取り込みました` + (dup ? `（重複 ${dup}件は除外）` : ""));
+  }
+  function renderImportStatus(msgs, added, dup) {
+    const on = imported.length > 0;
+    $("rpImport").classList.toggle("on", on);
+    $("importClear").hidden = !on;
+    const days = new Set(imported.map(dateOf)).size;
+    $("importStatus").textContent = on
+      ? `取り込み中：${importedFiles.length}ファイル・${imported.length}件（${days}日分）` +
+        (added != null ? `　今回 ${added}件追加${dup ? `・重複 ${dup}件除外` : ""}` : "") +
+        "。再読み込みやページを閉じると取り込みは解除されます（端末には保存しません）。"
+      : "過去の練習の推移を見るときは、保存しておいたCSVをまとめて取り込んでください。取り込んだデータはこの画面を開いている間だけ使い、端末には保存しません（容量を使いません）。";
+    $("importMsgs").innerHTML = (msgs || []).map((m) => `<li>${escapeHtml(m)}</li>`).join("");
+  }
+  function clearImported() {
+    imported = []; importedFiles = []; csvOnlyPlayers = [];
+    renderImportStatus([], null, 0);
+    if (!rpPlayerById(rp.playerId)) { flushComment(); rp.playerId = (state.players[0] || {}).id || null; }
+    renderReport();
+    toast("取り込みを解除しました");
+  }
+
+  /* ============================================================
+     画面の切り替え（記録／分析）
+     ============================================================ */
+  let currentView = "record";
+  const rp = { playerId: null, date: null, period: 30, metrics: ["A", "D"] };
+
+  function setView(v) {
+    if (v === currentView) return;
+    flushMemo();
+    if (currentView === "report") flushComment();
+    currentView = v;
+    document.body.dataset.view = v;
+    $("tabRecord").classList.toggle("on", v === "record");
+    $("tabReport").classList.toggle("on", v === "report");
+    $("tabRecord").setAttribute("aria-selected", v === "record" ? "true" : "false");
+    $("tabReport").setAttribute("aria-selected", v === "report" ? "true" : "false");
+    if (v === "report") {
+      const sel = selectedPlayerId();
+      if (!rpPlayerById(rp.playerId)) rp.playerId = sel || (reportPlayers()[0] || {}).id || null;
+      if (!rp.date) rp.date = latestDateOf(rp.playerId) || jstDate(Date.now());
+      renderReport();
+    }
+    window.scrollTo(0, 0);
+  }
+
+  /* ============================================================
+     集計（すべて実際の記録から計算。分母が0なら null＝データなし）
+     ============================================================ */
+  const QUALITY = [
+    { v: "A", name: "A 捉えた" }, { v: "B", name: "B ややずれ" },
+    { v: "C", name: "C つまり・先" }, { v: "D", name: "D 空振り" }
+  ];
+  // 当たりの指標（分母が0なら null＝データなし）
+  //   空振り率＝D÷(A+B+C+D)　コンタクト率＝(A+B+C)÷(A+B+C+D)
+  //   捉えた率・ややずれ率・つまり・先率＝それぞれ ÷(A+B+C)（バットに当たった中での割合）
+  //   スイングあたりの捉えた率＝A÷(A+B+C+D)
+  const METRICS = [
+    { k: "A", name: "捉えた率（当たった中）", num: (c) => c.A, den: (c) => c.A + c.B + c.C, denName: "当たり" },
+    { k: "B", name: "ややずれ率（当たった中）", num: (c) => c.B, den: (c) => c.A + c.B + c.C, denName: "当たり" },
+    { k: "C", name: "つまり・先率（当たった中）", num: (c) => c.C, den: (c) => c.A + c.B + c.C, denName: "当たり" },
+    { k: "D", name: "空振り率（全スイング）", num: (c) => c.D, den: (c) => c.A + c.B + c.C + c.D, denName: "スイング" }
+  ];
+  const dateOf = (r) => String(r.timestamp || "").slice(0, 10);
+  const recsOfPlayer = (pid) => reportRecords().filter((r) => r.player_id === pid);
+  function datesOf(pid) { return [...new Set(recsOfPlayer(pid).map(dateOf))].filter(Boolean).sort(); }
+  function latestDateOf(pid) { const d = datesOf(pid); return d.length ? d[d.length - 1] : null; }
+  const pct = (k, n) => (n ? (k / n) * 100 : null);
+  const fmtPct = (v) => (v == null ? "データなし" : `${v.toFixed(1)}%`);
+  function shiftDate(date, days) {
+    const [y, m, d] = date.split("-").map(Number);
+    const t = new Date(Date.UTC(y, m - 1, d) + days * 86400000);
+    return t.toISOString().slice(0, 10);
+  }
+  // ① 当たり：当たり（A〜D）が入力された記録が分母（未入力＝判定なしとして除外。種類・方向が未入力でも当たりがあれば数える）
+  function qualityOf(recs) {
+    const c = { A: 0, B: 0, C: 0, D: 0 };
+    recs.forEach((r) => { if (c.hasOwnProperty(r.batted_ball_strength)) c[r.batted_ball_strength]++; });
+    return { c, n: c.A + c.B + c.C + c.D };
+  }
+  // ③④ D以外で、その項目が入力された記録が分母
+  function categoryOf(recs, field, options) {
+    const c = {}; options.forEach((o) => { c[o.v] = 0; });
+    recs.forEach((r) => { if (!isWhiff(r) && c.hasOwnProperty(r[field])) c[r[field]]++; });
+    return { c, n: Object.values(c).reduce((a, b) => a + b, 0) };
+  }
+  // ⑤ 種類と当たり（A〜C）の両方が入力された記録
+  function typeQualityOf(recs) {
+    return TYPES.map((t) => {
+      const c = { A: 0, B: 0, C: 0 };
+      recs.forEach((r) => { if (r.batted_ball_type === t.v && c.hasOwnProperty(r.batted_ball_strength)) c[r.batted_ball_strength]++; });
+      return { type: t.v, c, n: c.A + c.B + c.C };
+    });
+  }
+
+  /* ============================================================
+     レポートの描画
+     ============================================================ */
+  function renderReport() {
+    // 選手の選択肢（名前変更・追加・削除に追従）
+    const sel = $("rpPlayer");
+    const plist = reportPlayers();
+    if (!rpPlayerById(rp.playerId)) rp.playerId = (plist[0] || {}).id || null;
+    sel.innerHTML = plist.length
+      ? plist.map((p) => `<option value="${escapeHtml(p.id)}"${p.id === rp.playerId ? " selected" : ""}>${escapeHtml(p.name)}${p.csvOnly ? "（CSVのみ）" : ""}</option>`).join("")
+      : `<option value="">（選手が登録されていません）</option>`;
+    sel.disabled = !plist.length;
+    if (!rp.date) rp.date = jstDate(Date.now());
+    $("rpDate").value = rp.date;
+    $("rpPeriod").value = String(rp.period);
+
+    const pid = rp.playerId;
+    const dates = pid ? datesOf(pid) : [];
+    const prevD = dates.filter((d) => d < rp.date).pop() || null;
+    const nextD = dates.find((d) => d > rp.date) || null;
+    $("rpPrev").disabled = !prevD; $("rpPrev").dataset.to = prevD || "";
+    $("rpNext").disabled = !nextD; $("rpNext").dataset.to = nextD || "";
+
+    bindComment(pid, rp.date);
+    $("cmFor").textContent = pid ? `対象：${rpName(pid)} ／ ${rp.date}` : "";
+
+    if (!pid) {
+      $("rpHead").innerHTML = `<div class="rp-empty">選手が登録されていません。記録画面の「＋選手追加」で登録するか、上の「CSVを取り込む」で保存したCSVを読み込んでください。</div>`;
+      ["chartQuality", "chartTrend", "chartDir", "chartType", "chartTypeQ"].forEach((id) => { $(id).innerHTML = ""; });
+      $("trendToggles").innerHTML = "";
+      return;
+    }
+    const day = recsOfPlayer(pid).filter((r) => dateOf(r) === rp.date);
+    const done = day.filter(isComplete).length;
+    const q = qualityOf(day);
+    const name = escapeHtml(rpName(pid));
+
+    let summary = "";
+    if (!day.length) {
+      summary = dates.length
+        ? `この日の記録はありません。◀▶で記録のある日（最新：${escapeHtml(dates[dates.length - 1])}）に移動できます。`
+        : "この選手の記録はまだありません。過去の練習は、上の「CSVを取り込む」で保存したCSVを読み込むと表示できます。";
+    } else {
+      summary = `記録 ${day.length}件のうち、入力完了 ${done}件（${fmtPct(pct(done, day.length))}）、当たりの判定あり ${q.n}件。`;
+      if (q.n) {
+        const hit = q.c.A + q.c.B + q.c.C;
+        summary += ` 空振り率 ${fmtPct(pct(q.c.D, q.n))}（${q.c.D}/${q.n}）、` +
+          `捉えた率（当たった中）${fmtPct(pct(q.c.A, hit))}（${q.c.A}/${hit}）、` +
+          `つまり・先率（当たった中）${fmtPct(pct(q.c.C, hit))}（${q.c.C}/${hit}）。`;
+      } else {
+        summary += " 当たりが判定された記録はありません。";
+      }
+      if (prevD) {
+        const pq = qualityOf(recsOfPlayer(pid).filter((r) => dateOf(r) === prevD));
+        const ph = pq.c.A + pq.c.B + pq.c.C;
+        summary += pq.n ? ` 前回の記録日（${escapeHtml(prevD)}）は 捉えた率 ${fmtPct(pct(pq.c.A, ph))}・空振り率 ${fmtPct(pct(pq.c.D, pq.n))}（判定あり ${pq.n}件）。` : "";
+      }
+      if (q.n && q.n < 20) summary += ` <span class="rp-warn">判定ありが${q.n}件と少ないため、割合は1球で大きく変わります。複数日の推移と合わせて判断してください。</span>`;
+    }
+    $("rpHead").innerHTML =
+      `<h2>${name}　<span style="font-size:16px">${escapeHtml(rp.date)}</span></h2>
+       <div class="rp-stats">
+         <span>記録 <b>${day.length}</b>件</span>
+         <span>入力完了 <b>${done}</b>件（${day.length ? fmtPct(pct(done, day.length)) : "データなし"}）</span>
+         <span>当たりの判定あり（①の分母） <b>${q.n}</b>件</span>
+         <span>未入力 <b>${day.length - done}</b>件</span>
+       </div>
+       <p class="rp-summary"><span class="tagline">数値の要約（自動・記録から計算した事実のみ）</span>${summary}</p>
+       <p class="rp-src">集計対象：${imported.length ? `この端末の記録 ＋ 取り込んだCSV（${importedFiles.length}ファイル）` : "この端末の記録のみ"}${day.some((r) => r._file) ? `　／ この日のデータ元：${escapeHtml([...new Set(day.map((r) => r._file || "この端末"))].join("、"))}` : ""}</p>`;
+
+    $("chartQuality").innerHTML = day.length ? qualityChart(q) : emptyBox("この日の記録はありません");
+    renderTrend(pid);
+    const dir = categoryOf(day, "batted_ball_direction", DIRECTIONS);
+    $("chartDir").innerHTML = day.length ? dirChart(dir) : emptyBox("この日の記録はありません");
+    const ty = categoryOf(day, "batted_ball_type", TYPES);
+    $("chartType").innerHTML = day.length ? typeChart(ty) : emptyBox("この日の記録はありません");
+    $("chartTypeQ").innerHTML = day.length ? typeQualityChart(typeQualityOf(day)) : emptyBox("この日の記録はありません");
+  }
+
+  const emptyBox = (msg) => `<div class="rp-empty">${escapeHtml(msg)}</div>`;
+  const qColor = (v) => `var(--q-${v})`;
+
+  // ① ドーナツ（中央に判定ありスイング数、凡例に件数・割合）＋指標表
+  function qualityChart(q) {
+    if (!q.n) return emptyBox("当たりが判定された記録がありません（データなし）。当たり（A〜D）が入力された記録が集計されます。");
+    const R = 70, SW = 30, C = 2 * Math.PI * R;
+    const parts = QUALITY.filter((x) => q.c[x.v] > 0);
+    const gap = parts.length > 1 ? 2 : 0;
+    let off = 0, segs = "";
+    parts.forEach((x) => {
+      const len = (q.c[x.v] / q.n) * C;
+      const tip = `${x.name}\n${q.c[x.v]}件 / ${q.n}件（${fmtPct(pct(q.c[x.v], q.n))}）`;
+      segs += `<circle cx="100" cy="100" r="${R}" fill="none" stroke="${qColor(x.v)}" stroke-width="${SW}"
+        stroke-dasharray="${Math.max(len - gap, 0.01)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 100 100)" data-tip="${escapeHtml(tip)}"><title>${escapeHtml(tip)}</title></circle>`;
+      off += len;
+    });
+    const svg = `<svg class="viz" viewBox="0 0 200 200" role="img" aria-label="当たりの構成比 判定あり${q.n}件">
+      <circle cx="100" cy="100" r="${R}" fill="none" stroke="#f1f5f9" stroke-width="${SW}"></circle>${segs}
+      <text x="100" y="98" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">${q.n}</text>
+      <text x="100" y="120" text-anchor="middle" font-size="12" font-weight="700" fill="#64748b">スイング（判定あり）</text></svg>`;
+    const legend = `<ul class="legend">` + QUALITY.map((x) => {
+      const k = q.c[x.v];
+      return `<li class="${k ? "" : "zero"}"><span class="sw" style="background:${qColor(x.v)}"></span>
+        <span class="nm">${escapeHtml(x.name)}</span><span class="ct">${k}件</span><span class="pc">${fmtPct(pct(k, q.n))}</span></li>`;
+    }).join("") + `</ul>`;
+    const hit = q.c.A + q.c.B + q.c.C;
+    const kpi = [
+      ["空振り率", q.c.D, q.n, "空振り ÷ 判定ありスイング"],
+      ["コンタクト率", hit, q.n, "当たり（A+B+C） ÷ 判定ありスイング"],
+      ["捉えた率（当たった中）", q.c.A, hit, "A ÷ 当たり（A+B+C）"],
+      ["つまり・先率（当たった中）", q.c.C, hit, "C ÷ 当たり（A+B+C）"],
+      ["捉えた率（全スイング）", q.c.A, q.n, "A ÷ 判定ありスイング"]
+    ];
+    const kpiHtml = `<table class="rp-table kpi"><tr><th>指標</th><th>割合</th><th>件数</th></tr>` +
+      kpi.map(([nm, k, n, def]) => `<tr><td>${nm}<br><small>${def}</small></td><td><b>${fmtPct(pct(k, n))}</b></td><td>${k}/${n}</td></tr>`).join("") + `</table>`;
+    return `<div class="q-wrap">${svg}${legend}</div>${kpiHtml}<p class="rp-note">分母：当たり（A〜D）が入力された${q.n}スイング。未入力は判定なしとして除外します。</p>`;
+  }
+
+  // ② 推移（記録のある日だけを日付順に。記録のない日は点を打たない）
+  function renderTrend(pid) {
+    const tg = $("trendToggles");
+    tg.innerHTML = METRICS.map((x) =>
+      `<button type="button" data-m="${x.k}" aria-pressed="${rp.metrics.includes(x.k)}"><span class="sw" style="background:${qColor(x.k)}"></span>${escapeHtml(x.name)}</button>`).join("");
+    const start = rp.period ? shiftDate(rp.date, -(rp.period - 1)) : "0000-00-00";
+    $("trendScope").textContent = rp.period ? `${start} 〜 ${rp.date}` : `全期間 〜 ${rp.date}`;
+    const all = recsOfPlayer(pid);
+    const dates = datesOf(pid).filter((d) => d >= start && d <= rp.date);
+    if (!dates.length) { $("chartTrend").innerHTML = emptyBox("この期間の記録はありません"); return; }
+    const rows = dates.map((d) => {
+      const recs = all.filter((r) => dateOf(r) === d);
+      const q = qualityOf(recs);
+      return { d, total: recs.length, n: q.n, hit: q.c.A + q.c.B + q.c.C,
+        p: Object.fromEntries(METRICS.map((m) => [m.k, pct(m.num(q.c), m.den(q.c))])),
+        den: Object.fromEntries(METRICS.map((m) => [m.k, m.den(q.c)])),
+        num: Object.fromEntries(METRICS.map((m) => [m.k, m.num(q.c)])) };
+    });
+    const metrics = METRICS.filter((x) => rp.metrics.includes(x.k));
+    // 表示幅に合わせて描画サイズを決める（スマホで文字が小さくなりすぎないように）
+    const cw = $("chartTrend").clientWidth || 600;
+    const W = Math.max(300, Math.min(600, Math.round(cw))), H = W < 420 ? 220 : 250, L = 40, Rm = 26, T = 14, B = 52;
+    const iw = W - L - Rm, ih = H - T - B;
+    const X = (i) => rows.length === 1 ? L + iw / 2 : L + (i / (rows.length - 1)) * iw;
+    const Y = (v) => T + ih - (v / 100) * ih;
+    let g = "";
+    [0, 25, 50, 75, 100].forEach((v) => {
+      g += `<line x1="${L}" x2="${W - Rm}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)" stroke-width="1"></line>
+            <text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="#64748b">${v}%</text>`;
+    });
+    const step = Math.max(1, Math.ceil(rows.length / (W < 420 ? 6 : 10)));
+    rows.forEach((r, i) => {
+      if (r.d === rp.date) g += `<rect x="${X(i) - 14}" y="${T}" width="28" height="${ih}" fill="#f1f5f9"></rect>`;
+      if (i % step === 0 || i === rows.length - 1 || r.d === rp.date) {
+        g += `<text x="${X(i)}" y="${H - B + 18}" text-anchor="middle" font-size="11" fill="#475569" font-weight="${r.d === rp.date ? 800 : 500}">${r.d.slice(5).replace("-", "/")}</text>
+              <text x="${X(i)}" y="${H - B + 34}" text-anchor="middle" font-size="10" fill="#64748b">n=${r.n}</text>`;
+      }
+    });
+    g += `<line x1="${L}" x2="${W - Rm}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--axis)" stroke-width="1"></line>`;
+    metrics.forEach((m) => {
+      let d = "", pen = false, lastI = -1;
+      rows.forEach((r, i) => {
+        const v = r.p[m.k];
+        if (v == null) { pen = false; return; }
+        d += `${pen ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)} `; pen = true; lastI = i;
+      });
+      if (d) g += `<path d="${d}" fill="none" stroke="${qColor(m.k)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>`;
+      rows.forEach((r, i) => {
+        const v = r.p[m.k];
+        if (v == null) return;
+        const tip = `${r.d}　${m.name}\n${fmtPct(v)}（${r.num[m.k]}/${r.den[m.k]}${m.denName}）\nこの日の記録 ${r.total}件`;
+        const small = r.den[m.k] < 10;
+        g += `<circle cx="${X(i)}" cy="${Y(v)}" r="4.5" fill="${small ? "#fff" : qColor(m.k)}" stroke="${small ? qColor(m.k) : "#fff"}" stroke-width="2" data-tip="${escapeHtml(tip)}"><title>${escapeHtml(tip)}</title></circle>
+              <circle cx="${X(i)}" cy="${Y(v)}" r="12" fill="transparent" data-tip="${escapeHtml(tip)}"></circle>`;
+      });
+      if (lastI >= 0) g += `<text x="${X(lastI) + 8}" y="${Y(rows[lastI].p[m.k]) + 4}" font-size="11" font-weight="800" fill="#0f172a">${m.k}</text>`;
+    });
+    const noData = rows.every((r) => r.n === 0);
+    const legend = metrics.length
+      ? `<p class="rp-note">表示中：${metrics.map((m) => `<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${qColor(m.k)};margin:0 3px 0 6px"></span>${escapeHtml(m.name)}`).join("")}　／ 白抜きの点＝その指標の分母が10件未満の日（割合がぶれやすい）。下の n＝その日の判定ありスイング数</p>`
+      : `<p class="rp-note">上のボタンで表示する指標を選んでください。</p>`;
+    const table = `<details class="rp-tbl"><summary>日ごとの件数・割合を表で見る</summary><table class="rp-table">
+      <tr><th>日付</th><th>記録</th><th>判定あり</th><th>当たり</th><th>捉えた率</th><th>ややずれ率</th><th>つまり・先率</th><th>空振り率</th></tr>
+      ${rows.map((r) => `<tr class="${r.d === rp.date ? "cur" : ""}"><td>${r.d}</td><td>${r.total}</td><td>${r.n}</td><td>${r.hit}</td>${METRICS.map((m) => `<td>${r.p[m.k] == null ? "—" : r.p[m.k].toFixed(0) + "%"}</td>`).join("")}</tr>`).join("")}
+      </table></details>`;
+    $("chartTrend").innerHTML =
+      (noData ? emptyBox("この期間に当たりが判定された記録がありません（データなし）") :
+        `<svg class="viz" viewBox="0 0 ${W} ${H}" role="img" aria-label="当たりの指標の推移">${g}</svg>`) +
+      (rows.length === 1 && !noData ? `<p class="rp-note">この期間の記録日は1日だけです。推移を見るには2日以上の記録が必要です。</p>` : "") +
+      legend + table;
+  }
+
+  // ③ 打球方向（グラウンド型の扇形。右打者の向き＝引っ張りが左）
+  function dirChart(dir) {
+    if (!dir.n) return emptyBox("D以外で方向が入力された記録がありません（データなし）");
+    const hx = 160, hy = 196, R = 172;
+    const P = (deg, r) => [hx + r * Math.cos(deg * Math.PI / 180), hy - r * Math.sin(deg * Math.PI / 180)];
+    const seq = ["#f8fafc", "var(--seq-1)", "var(--seq-2)", "var(--seq-3)", "var(--seq-4)", "var(--seq-5)", "var(--seq-6)"];
+    const fillFor = (k) => (k ? seq[Math.min(6, Math.max(1, Math.ceil((k / dir.n) * 6)))] : seq[0]);
+    const inkFor = (k) => (k && Math.ceil((k / dir.n) * 6) >= 4 ? "#fff" : "#0f172a");
+    const fans = [["引っ張り", 135, 105], ["センター", 105, 75], ["流し", 75, 45]];
+    let g = "";
+    fans.forEach(([v, a1, a2]) => {
+      const k = dir.c[v] || 0;
+      const [x1, y1] = P(a1, R), [x2, y2] = P(a2, R);
+      const tip = `${v}\n${k}件 / ${dir.n}件（${fmtPct(pct(k, dir.n))}）`;
+      g += `<path d="M${hx},${hy} L${x1.toFixed(1)},${y1.toFixed(1)} A${R},${R} 0 0 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z"
+        fill="${fillFor(k)}" stroke="#fff" stroke-width="2" ${k ? "" : 'stroke-dasharray="4 3"'} data-tip="${escapeHtml(tip)}"><title>${escapeHtml(tip)}</title></path>`;
+      const [tx, ty] = P((a1 + a2) / 2, R * 0.64);
+      g += `<text x="${tx}" y="${ty - 12}" text-anchor="middle" font-size="13" font-weight="800" fill="${inkFor(k)}">${v}</text>
+            <text x="${tx}" y="${ty + 6}" text-anchor="middle" font-size="15" font-weight="900" fill="${inkFor(k)}">${k}件</text>
+            <text x="${tx}" y="${ty + 22}" text-anchor="middle" font-size="11" font-weight="700" fill="${inkFor(k)}">${fmtPct(pct(k, dir.n))}</text>`;
+    });
+    // 内野（目安の線）
+    const d = 26;   // 内野は目安として小さく描く（数字に重ならない大きさ）
+    g += `<path d="M${hx},${hy} L${hx - d},${hy - d} L${hx},${hy - 2 * d} L${hx + d},${hy - d} Z" fill="none" stroke="#fff" stroke-width="1.5" opacity=".8"></path>
+          <rect x="${hx - 5}" y="${hy - 5}" width="10" height="10" transform="rotate(45 ${hx} ${hy})" fill="#fff" stroke="#94a3b8"></rect>`;
+    const kb = dir.c["ファール"] || 0;
+    const tipB = `ファール\n${kb}件 / ${dir.n}件（${fmtPct(pct(kb, dir.n))}）`;
+    g += `<rect x="${hx - 92}" y="${hy + 12}" width="184" height="30" rx="8" fill="${fillFor(kb)}" stroke="#cbd5e1" ${kb ? "" : 'stroke-dasharray="4 3"'} data-tip="${escapeHtml(tipB)}"><title>${escapeHtml(tipB)}</title></rect>
+          <text x="${hx}" y="${hy + 32}" text-anchor="middle" font-size="12" font-weight="800" fill="${inkFor(kb)}">ファール ${kb}件・${fmtPct(pct(kb, dir.n))}</text>`;
+    return `<svg class="viz" viewBox="0 0 320 246" role="img" aria-label="打球方向の分布 ${dir.n}件">${g}</svg>
+      <p class="rp-note">分母：D以外で方向が入力された${dir.n}件。色が濃いほど割合が高い。右打者の向き（引っ張り＝左側）で表示しています。左打者は左右が逆になります。</p>`;
+  }
+
+  // ④ 打球種類の構成比（横棒）
+  function typeChart(ty) {
+    if (!ty.n) return emptyBox("D以外で打球種類が入力された記録がありません（データなし）");
+    return `<div class="hbars">` + TYPES.map((t) => {
+      const k = ty.c[t.v], p = pct(k, ty.n);
+      const tip = `${t.v}\n${k}件 / ${ty.n}件（${fmtPct(p)}）`;
+      return `<div class="hbar" data-tip="${escapeHtml(tip)}"><span class="nm">${escapeHtml(t.v)}</span>
+        <span class="track"><span class="fill" style="width:${p.toFixed(1)}%"></span></span>
+        <span class="val"><b>${fmtPct(p)}</b>（${k}件）</span></div>`;
+    }).join("") + `</div><p class="rp-note">分母：D以外で打球種類が入力された${ty.n}件</p>`;
+  }
+
+  // ⑤ 種類ごとのA・B・C（100%積み上げ。件数も表示）
+  function typeQualityChart(rows) {
+    const total = rows.reduce((a, r) => a + r.n, 0);
+    if (!total) return emptyBox("打球種類と当たり（A〜C）の両方が入力された記録がありません（データなし）");
+    const body = rows.map((r) => {
+      if (!r.n) return `<div class="hbar"><span class="nm">${escapeHtml(r.type)}</span><span class="track"></span><span class="val">データなし</span></div>`;
+      const segs = ["A", "B", "C"].filter((v) => r.c[v] > 0).map((v) => {
+        const p = (r.c[v] / r.n) * 100;
+        const tip = `${r.type}・${v}\n${r.c[v]}件 / ${r.n}件（${fmtPct(p)}）`;
+        return `<span class="seg${v === "C" ? " light" : ""}" style="width:${p}%;background:${qColor(v)}" data-tip="${escapeHtml(tip)}">${p >= 14 ? `${v} ${r.c[v]}` : ""}</span>`;
+      }).join("");
+      return `<div class="hbar${r.n < 5 ? " small" : ""}"><span class="nm">${escapeHtml(r.type)}</span>
+        <span class="stack">${segs}</span>
+        <span class="val">${["A", "B", "C"].map((v) => `${v}${r.c[v]}`).join("・")}（計${r.n}）</span></div>`;
+    }).join("");
+    const legend = ["A", "B", "C"].map((v) => `<span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${qColor(v)};margin:0 3px 0 8px"></span>${escapeHtml(QUALITY.find((x) => x.v === v).name)}`).join("");
+    return `<div class="hbars">${body}</div>
+      <p class="rp-note">${legend}</p>
+      <p class="rp-note">各種類の中での割合（分母＝その種類の件数）。棒の長さは割合で、件数ではありません。※少数＝5件未満で、割合が大きく変動します。</p>`;
+  }
+
+  // グラフのツールチップ（PCはマウス、スマホはタップで表示）
+  function setupTooltip() {
+    const tip = document.createElement("div");
+    tip.className = "viz-tip"; document.body.appendChild(tip);
+    let hideT = null;
+    const show = (el, x, y) => {
+      tip.textContent = el.getAttribute("data-tip");
+      tip.style.display = "block";
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      tip.style.left = Math.max(4, Math.min(window.innerWidth - w - 4, x + 12)) + "px";
+      tip.style.top = Math.max(4, y - h - 12) + "px";
+    };
+    const view = $("reportView");
+    view.addEventListener("mousemove", (e) => {
+      const el = e.target.closest && e.target.closest("[data-tip]");
+      if (el) show(el, e.clientX, e.clientY); else tip.style.display = "none";
+    });
+    view.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    view.addEventListener("click", (e) => {
+      const el = e.target.closest && e.target.closest("[data-tip]");
+      if (!el) return;
+      show(el, e.clientX, e.clientY);
+      clearTimeout(hideT); hideT = setTimeout(() => { tip.style.display = "none"; }, 2500);
+    });
+  }
+
+  function setupReport() {
+    $("tabRecord").addEventListener("click", () => setView("record"));
+    $("tabReport").addEventListener("click", () => setView("report"));
+    $("rpPlayer").addEventListener("change", (e) => {
+      flushComment();
+      rp.playerId = e.target.value || null;
+      rp.date = latestDateOf(rp.playerId) || rp.date;
+      renderReport();
+    });
+    $("rpDate").addEventListener("change", (e) => { flushComment(); rp.date = e.target.value || jstDate(Date.now()); renderReport(); });
+    $("rpPrev").addEventListener("click", (e) => { if (e.currentTarget.dataset.to) { flushComment(); rp.date = e.currentTarget.dataset.to; renderReport(); } });
+    $("rpNext").addEventListener("click", (e) => { if (e.currentTarget.dataset.to) { flushComment(); rp.date = e.currentTarget.dataset.to; renderReport(); } });
+    $("rpPeriod").addEventListener("change", (e) => { rp.period = Number(e.target.value) || 0; renderReport(); });
+    $("trendToggles").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-m]");
+      if (!b) return;
+      const m = b.dataset.m;
+      rp.metrics = rp.metrics.includes(m) ? rp.metrics.filter((x) => x !== m) : METRICS.map((x) => x.k).filter((v) => v === m || rp.metrics.includes(v));
+      renderTrend(rp.playerId);
+    });
+    $("rpPrint").addEventListener("click", () => { flushComment(); syncCommentPrint(); window.print(); });
+    CM_FIELDS.forEach(([id]) => {
+      $(id).addEventListener("input", onCommentInput);
+      $(id).addEventListener("blur", flushComment);
+    });
+    // 全件削除の確認画面
+    $("clearAgree").addEventListener("change", (e) => { $("clearDo").disabled = !e.target.checked; });
+    $("clearCancel").addEventListener("click", closeClearModal);
+    $("clearDo").addEventListener("click", doClearAll);
+    $("clearCsv").addEventListener("click", downloadCsv);
+    $("clearModal").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeClearModal(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("clearModal").hidden) closeClearModal(); });
+    $("csvBtn2").addEventListener("click", downloadCsv);
+    $("importFile").addEventListener("change", (e) => { importCsvFiles(e.target.files).finally(() => { e.target.value = ""; }); });
+    $("importClear").addEventListener("click", clearImported);
+    $("csvShare").addEventListener("click", () => { if (csvSheetData) saveCsvByShare(csvSheetData.csv, csvSheetData.fname).then((ok) => { if (ok) closeCsvSheet(); }); });
+    $("csvDownload").addEventListener("click", () => { if (csvSheetData) saveCsvByDownload(csvSheetData.csv, csvSheetData.fname); });
+    $("csvCopy").addEventListener("click", () => { $("csvText").hidden = false; copyCsvText(); });
+    $("csvClose").addEventListener("click", closeCsvSheet);
+    $("csvSheet").addEventListener("click", (e) => { if (e.target === e.currentTarget) closeCsvSheet(); });
+    // 印刷時は「集計の定義」と「日ごとの表」も開いて出力し、終わったら元に戻す
+    let openedForPrint = [];
+    window.addEventListener("beforeprint", () => {
+      flushComment(); syncCommentPrint();
+      openedForPrint = [...document.querySelectorAll("#reportView details:not([open])")];
+      openedForPrint.forEach((el) => { el.open = true; });
+    });
+    window.addEventListener("afterprint", () => { openedForPrint.forEach((el) => { el.open = false; }); openedForPrint = []; });
+    setupTooltip();
+  }
+
+  // テスト用に一部の関数を公開（通常の利用には影響しません）
+  window.__battingRecorder = {
+    buildCsv, csvEscape, jstTimestamp, recordImpact, updateResult, selectRecord,
+    addPlayer, renamePlayer, deletePlayer, playerKey, getState: () => state,
+    setView, renderReport, importCsvFiles, clearImported, reportRecords, reportPlayers, parseCsv, qualityOf, categoryOf, typeQualityOf, flushComment, getComments: () => comments, rp
+  };
+
+  document.addEventListener("DOMContentLoaded", init);
+})();
+</script>
+</body>
+</html>
